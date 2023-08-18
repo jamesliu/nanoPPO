@@ -69,8 +69,6 @@ class PPO:
 
         # Compute probability ratio
         ratio = torch.exp(new_log_probs - old_log_probs)
-        print('ratio')
-        print(ratio)
 
         # Compute surrogate loss
         surr1 = ratio * advantages
