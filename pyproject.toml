@@ -1,5 +1,5 @@
 [project]
-name = "reinforcement learning PPO"
+name = "nanoPPO"
 version = "0.1"
 description = "This is a reinforcement PPO implementation"
 readme = "README.md"
@@ -9,3 +9,5 @@ classifiers = [
     "Development Status :: 4 - Beta"
 ]
 
+[project.optional-dependencies]
+test = ["pytest"]
