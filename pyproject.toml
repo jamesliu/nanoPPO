@@ -1,6 +1,6 @@
 [project]
 name = "nanoPPO"
-version = "0.1"
+version = "0.1.post1"
 description = "A flexible and efficient implementation of the Proximal Policy Optimization (PPO) algorithm for reinforcement learning."
 readme = "README.md"
 authors = [{name = "James Liu"}]
