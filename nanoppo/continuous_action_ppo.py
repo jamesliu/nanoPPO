@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
 import torch.optim as optim
 import gym
 from scipy import stats
@@ -16,8 +16,26 @@ from typing import Tuple
 from collections import deque, defaultdict
 from pathlib import Path
 import ray.tune as tune
-import sklearn
+from sklearn.preprocessing import StandardScaler
 import click
+import json
+from copy import deepcopy
+import warnings
+
+# Suppress the specific warning
+warnings.filterwarnings('ignore', message='Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.')
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # If using other libraries/frameworks, set the seed for those as well
+
+SEED = 43
+set_seed(SEED)
 
 # Define the weight initialization function
 def init_weights(m, init_type='he'):
@@ -93,7 +111,7 @@ def compute_value_loss(value, states, returns, l1_loss):
     value_loss = F.smooth_l1_loss(v_pred, v_target) if l1_loss else F.mse_loss(v_pred, v_target)
     return value_loss
 
-def select_action(policy, state, device, action_min, action_max, action_std=0.001):
+def select_action(policy, state, device, action_min, action_max, action_std=1e-5):
     state = torch.from_numpy(state).float().to(device)
     dist = policy(state)
     action = dist.sample()
@@ -103,10 +121,9 @@ def select_action(policy, state, device, action_min, action_max, action_std=0.00
     action_mean = dist.mean
     action_std = dist.stddev
 
-    # action = torch.tanh(action)  # Pass the sampled action through the tanh activation function
-    # action = action + torch.normal(mean=torch.zeros_like(action), std=action_std)  # Add noise to the action
-    #action = action.clamp(-1.0, 1.0)  # Clip the action to the valid range of the action space
-    action = action.clamp(action_min, action_max)
+    #action = torch.tanh(action)  # Pass the sampled action through the tanh activation function
+    #action = action + torch.normal(mean=torch.zeros_like(action), std=action_std)  # Add noise to the action
+    action = action.clamp(action_min, action_max) # Clip the action to the valid range of the action space
     return action.cpu().detach(), log_prob.cpu().detach(), action_mean.cpu().detach(), action_std.cpu().detach()
 
 class ReplayBuffer:
@@ -218,7 +235,7 @@ def setup_env(env_name, env_config,seed=101):
         env = gym.make(env_name)
     return env
 
-def setup_networks(env, optimizer_config, hidden_size, init_type, device, epochs, attention=False):
+def setup_networks(env, optimizer_config, hidden_size, init_type, device, epochs, sgd_iters, attention=False):
     if isinstance(env.observation_space, gym.spaces.Dict):
         observation_space = env.observation_space.spaces['obs']
     else:
@@ -245,7 +262,15 @@ def setup_networks(env, optimizer_config, hidden_size, init_type, device, epochs
         eps=optimizer_config['epsilon'], 
         weight_decay=optimizer_config['weight_decay']
         )
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    if optimizer_config['scheduler'] is None:
+        scheduler = None
+    elif optimizer_config['scheduler'] == 'exponential':
+        scheduler = ExponentialLR(optimizer, gamma=optimizer_config['exponential_gamma'])
+    elif optimizer_config['scheduler'] == 'cosine':
+        #scheduler = CosineAnnealingLR(optimizer, T_max=epochs*sgd_iters)
+        scheduler = CosineAnnealingLR(optimizer, T_max=optimizer_config['cosine_T_max'])
+    else:
+        raise ValueError(f"Scheduler {optimizer_config['scheduler']} not recognized.")
     return policy, value, optimizer, scheduler
 
 def get_progress_iterator(last_epoch, epochs, verbose):
@@ -296,7 +321,7 @@ class StateScaler:
         
     def _init_scaler(self, env, sample_size):
         state_space_samples = np.array([env.observation_space.sample() for _ in range(sample_size)])
-        scaler = sklearn.preprocessing.StandardScaler()
+        scaler = StandardScaler()
         scaler.fit(state_space_samples)
         return scaler
 
@@ -315,7 +340,10 @@ def rollout_with_scaling(policy, env, device, replay_buffer, state_scaler, rewar
     state, info = env.reset()
     if isinstance(state, dict):
         state = state['obs']
-    scaled_state = state_scaler.scale_state(state)
+    if state_scaler is None:
+        scaled_state = state
+    else:
+        scaled_state = state_scaler.scale_state(state)
     done = False
     total_rewards = 0
     steps = 0
@@ -371,6 +399,7 @@ def eval(policy, env_name, state_scaler, env_config = {}, device='cpu', epochs=2
         env = gym.make(env_name, config=env_config)
     else:
         env = gym.make(env_name)
+    env.seed(SEED)
     action_min = env.action_space.low[0]
     action_max = env.action_space.high[0]
     episode_rewards = []
@@ -480,7 +509,8 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
         activation_norm = sum(activation_norms) / len(activation_norms)
 
         optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         
         if wandb_log:
             # Log the losses and gradients to WandB
@@ -498,7 +528,7 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
             lr = param_group['lr']
             lrs['learning_rate_{}'.format(i)] = lr
             if wandb_log:
-                wandb.log({'learning_rate_{}'.format(i): lr})
+                wandb.log({'LR/LearningRate_{}'.format(i): lr})
 
         if metrics_recorder:
             metrics_recorder.record_losses(total_loss.item(), policy_loss.item(), value_loss.item())
@@ -507,33 +537,46 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
         iter_num += 1
     return policy, value, iter_num,
 
-def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_rewards:bool, num_rollout, epochs, batch_size, sgd_iters, gamma,
+def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_rewards:bool, scale_states:str,
+          num_rollout, epochs, batch_size, sgd_iters, gamma,
           optimizer_config, hidden_size, init_type, clip_param, vf_coef, entropy_coef, max_grad_norm, use_gae, tau, l1_loss,
           wandb_log, verbose, replay_buffer_size, replay_start_size,
-          checkpoint_interval=-1, checkpoint_path=None, resume_training=False, resume_epoch=None, tune_report=False):
+          checkpoint_interval=-1, checkpoint_path=None, resume_training=False, resume_epoch=None, tune_report=False, project='continuous-action-ppo'):
     print('Training PPO agent on environment: ', env_name, ' for ', epochs, ' epochs', ' and num rollout: ', num_rollout, ' and replay buffer size: ', replay_buffer_size, ' and replay start size: ', replay_start_size,
           ' with batch size: ', batch_size, ' and sgd iters: ', sgd_iters, ' and gamma: ', gamma, ' and optimizer config: ', optimizer_config,
           ' and hidden size: ', hidden_size, ' and init type: ', init_type, 
           ' and clip param: ', clip_param, ' and vf coef: ', vf_coef, ' and entropy coef: ', entropy_coef, ' and max grad norm: ', max_grad_norm,
           'and tau: ', tau, ' and l1 loss: ', l1_loss, ' and wandb log: ', wandb_log, ' and verbose: ', verbose,)
+
  
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Initialize WandB
     if wandb_log:
-        wandb.init(project="myppo_continuous_action", name=env_name)
+        config = locals().copy()
+        keys_to_delete = ['checkpoint_interval', 'checkpoint_path', 'resume_training', 'resume_epoch', 'tune_report']
+        [config.pop(key, None) for key in keys_to_delete]
+        wandb.init(project=project, name=env_name, config=config)
     metrics_recorder = MetricsRecorder()
 
     # Set up environment and neural networks
     env = setup_env(env_name, env_config)
-    policy, value, optimizer, scheduler = setup_networks(env, optimizer_config, hidden_size=hidden_size, init_type=init_type, device=device, epochs=epochs, attention=attention)
+    policy, value, optimizer, scheduler = setup_networks(env, optimizer_config, hidden_size=hidden_size, init_type=init_type, device=device, epochs=epochs, sgd_iters=sgd_iters, attention=attention)
     replay_buffer = ReplayBuffer(replay_buffer_size)
     if rescaling_rewards:
         reward_scaler = RewardScaler()
     else:
         reward_scaler = None
         click.secho('No reward scaling', fg='red', err=True)
-    
-    state_scaler = StateScaler(env, sample_size=10000, by_sample=False)
+
+    if scale_states == 'by_sample':
+        state_scaler = StateScaler(env, sample_size=10000, by_sample=True)
+    elif scale_states == 'by_env': 
+        state_scaler = StateScaler(env, sample_size=10000, by_sample=False)
+    elif scale_states is None:
+        state_scaler = None
+        click.secho('No state scaling', fg='red', err=True)
+    else:
+        raise ValueError(f"State scaling {scale_states} not recognized.")
 
     if resume_training:
         last_epoch = load_checkpoint(policy, value, optimizer, checkpoint_path, epoch=resume_epoch)
@@ -544,6 +587,7 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
     episode_rewards = []
     total_iters = epochs * sgd_iters
     iter_num = 0
+    average_reward = - np.inf
     for epoch in get_progress_iterator(last_epoch, epochs, verbose):
         if on_policy:
             replay_buffer.clear() # clear the replay buffer, all data is from the current policy
@@ -558,10 +602,6 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
             if len(replay_buffer) < replay_start_size:
                 print('epoch', epoch, 'rollout', len(replay_buffer))
                 continue
-        if wandb_log:
-            log_rewards(episode_rewards[-100:])
-        if metrics_recorder:
-            metrics_recorder.record_rewards(episode_rewards[-100:])
         _,_, iter_num = train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer, device, 
                        batch_size, sgd_iters, gamma, clip_param, vf_coef, entropy_coef, max_grad_norm, 
                        use_gae=use_gae, tau=tau, l1_loss=l1_loss, wandb_log = wandb_log, metrics_recorder=metrics_recorder)
@@ -569,49 +609,77 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
             save_checkpoint(policy, value, optimizer, epoch, checkpoint_path)
         
         # Average of last 10 episodes or all episodes if less than 10 episodes are available
-        average_reward = sum(episode_rewards[-30:]) / min(30, len(episode_rewards)) 
-        if tune_report:
-            tune.report(mean_reward=average_reward)  # Reporting the reward to Tune
-        else:
-            if verbose or epoch % 10 == 0:
-                print('epoch', epoch, 'average reward', average_reward, 'rollout episodes', len(episode_rewards))
+        if len(episode_rewards) >= 10:
+            average_reward = sum(episode_rewards[-50:]) / len(episode_rewards[-50:]) 
+            if wandb_log:
+                log_rewards(episode_rewards[-50:])
+            if metrics_recorder:
+                metrics_recorder.record_rewards(episode_rewards[-50:])
+            if tune_report:
+                tune.report(mean_reward=average_reward)  # Reporting the reward to Tune
+            else:
+                if verbose or (epoch+1) % 10 == 0:
+                    print('epoch', epoch + 1, 'average reward', average_reward, 'num_rollout', num_rollout, 'rollout episodes', len(episode_rewards))
     
     metrics_recorder.to_csv()
     if wandb_log:
         wandb.finish()
-    return policy, value, average_reward
+    print('Training complete', 'average reward', average_reward, 'total iters', total_iters)
+    return policy, value, average_reward, iter_num
 
 env_name = 'MountainCarContinuous-v0'
 #env_name = 'Pendulum-v1'
 
 config = {
-    'env_name':env_name, 'env_config': None, 'on_policy': True, 'attention':False, 'rescaling_rewards': True, 'use_gae':True, 'l1_loss':False, 
-    'num_rollout': 2, 'replay_start_size': 100, 'replay_buffer_size': 2048, 'hidden_size':64, 'init_type':'xavier',
-    'epochs': 500, 'sgd_iters': 30, 'batch_size': 512, 'gamma': 0.99, 
-    'clip_param': 0.290472058684371, 'max_grad_norm': 0.9426866418790952, 'vf_coef': 1.3438889498747817, 
-    'entropy_coef': 0.000591524925410050, 'tau': 0.960078265158954, 
-    'wandb_log': True, 'verbose':True, 'checkpoint_interval':100, 'checkpoint_path': Path('checkpoints') / 'myppo_onpolicy' / env_name
+    'env_name':env_name, 'env_config': None, 'on_policy': True, 'attention':False, 'rescaling_rewards': True, 
+    'scale_states': 'by_sample', # None, by_sample, by_env
+    'use_gae':True, 'l1_loss':True, 
+    'num_rollout': 20, 'replay_start_size': 100, 'replay_buffer_size': 2048, 'hidden_size':64, 
+    'init_type':'he', # xavier, he
+    'epochs': 500, 'sgd_iters': 30, 'batch_size': 64, 
+    'gamma': 0.99, 'vf_coef': 1.35, 
+    'clip_param': 0.2, 'max_grad_norm': 1.0, 
+    'entropy_coef': 0.0, 'tau': 0.99, 
+    'wandb_log': True, 'verbose':True, 'checkpoint_interval':100, 'checkpoint_path': str(Path('checkpoints') / 'myppo_onpolicy' / env_name)
 }
 
 optimizer_config = { 
-    "lr": 0.0009682521671192982,
+    "lr": 1e-4,
     "beta1": 0.9,
     "beta2": 0.98,
     "epsilon": 1e-8,
-    "weight_decay": 0.0009235827912560286
+    "weight_decay": 1e-4,
+    "scheduler": "cosine", # None, exponential, cosine
+    "exponential_gamma": 0.95, # for exponential scheduler only
+    "cosine_T_max": 50 # for cosine scheduler only
 }
 config.update({'optimizer_config':optimizer_config})
+
+def update_config(aconfig):
+    o = deepcopy(optimizer_config)
+    for key in o:
+        if key in aconfig:
+            o[key] = aconfig[key]
+    c = deepcopy(config)
+    for key in c:
+        if key in aconfig:
+            c[key] = aconfig[key]
+    c.update({'optimizer_config':o})
+    return c 
     
 if __name__ == '__main__':
-    best_config = {'num_rollout': 5, 'init_type': 'xavier', 'lr': 0.0009682521671192982, 'weight_decay': 0.0009235827912560286, 'sgd_iters': 30, 'replay_buffer_size': 2048, 'batch_size': 512, 'l1_loss': False, 'clip_param': 0.290472058684371, 'max_grad_norm': 0.9426866418790952, 'vf_coef': 1.3438889498747817, 'entropy_coef': 0.0005915249254100502, 'tau': 0.960078265158954} 
-    for k,v in best_config.items():
-        if k in optimizer_config.keys():
-            print(f"setting optimizer {k} to {v}")
-            config['optimizer_config'][k] = v
-        else:
-            print(f"setting {k} to {v}")
-            config[k] = v
-    policy, value, average_reward = train(**config, tune_report=False)
-    print('train', 'average reward', average_reward)
+    mountaincar_config = {'lr': 1.7420339083049578e-05, 'weight_decay': 1.7438307880043168e-05, 
+                    #'init_type': 'he',
+                    'cosine_T_max':500, 'num_rollout': 3, 
+                    'sgd_iters': 5, 'replay_buffer_size': 1024, 
+                   #'batch_size': 64, 'l1_loss': False, 'clip_param': 0.2596984345649255, 
+                   #'max_grad_norm': 0.7314258315395276, 'vf_coef': 1.131643912306456, 
+                   #'entropy_coef': 0.00002160051724477604, 'tau': 0.9817068219357478
+                   }
+    best_config = mountaincar_config
+    train_config = update_config(best_config) 
+    print('train config', train_config)
+    policy, value, average_reward, total_iters = train(**train_config, tune_report=False)
+    print('train', 'average reward', average_reward, 'total iters', total_iters)
 
 
