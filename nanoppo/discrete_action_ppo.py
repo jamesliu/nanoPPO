@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 
+
 class PolicyNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, n_actions):
         super(PolicyNetwork, self).__init__()
@@ -13,6 +14,7 @@ class PolicyNetwork(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         return F.softmax(self.fc2(x), dim=-1)
+
 
 class ValueNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim):
@@ -24,8 +26,11 @@ class ValueNetwork(nn.Module):
         x = F.relu(self.fc1(x))
         return self.fc2(x)
 
+
 class PPO:
-    def __init__(self, state_dim, action_dim, hidden_dim=64, lr=0.001, gamma=0.99, epsilon=0.2):
+    def __init__(
+        self, state_dim, action_dim, hidden_dim=64, lr=0.001, gamma=0.99, epsilon=0.2
+    ):
         self.policy = PolicyNetwork(state_dim, hidden_dim, action_dim)
         self.value = ValueNetwork(state_dim, hidden_dim)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
@@ -55,7 +60,9 @@ class PPO:
             next_value = 0
         else:
             next_value = self.value(next_states[-1]).item()
-        advantages = self.compute_advantage(rewards, values, next_value, done).detach() # Detach advantages
+        advantages = self.compute_advantage(
+            rewards, values, next_value, done
+        ).detach()  # Detach advantages
 
         # Compute value loss and update value network
         targets = rewards + self.gamma * self.value(next_states).squeeze() * (1 - done)
@@ -65,7 +72,9 @@ class PPO:
         self.value_optimizer.step()
 
         # Compute new log probabilities
-        new_log_probs = self.policy(states).gather(1, actions.unsqueeze(1)).log().squeeze()
+        new_log_probs = (
+            self.policy(states).gather(1, actions.unsqueeze(1)).log().squeeze()
+        )
 
         # Compute probability ratio
         ratio = torch.exp(new_log_probs - old_log_probs)
@@ -79,4 +88,3 @@ class PPO:
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         self.policy_optimizer.step()
-

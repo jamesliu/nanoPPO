@@ -1,10 +1,11 @@
 import numpy as np
 
+
 class RewardScaler:
     """
     This class is designed to normalize the rewards using Welford's online algorithm
-    for computing running mean and variance. Normalizing rewards can be beneficial 
-    for training as it ensures that the scale of the rewards is roughly consistent, 
+    for computing running mean and variance. Normalizing rewards can be beneficial
+    for training as it ensures that the scale of the rewards is roughly consistent,
     which can improve the stability and convergence speed of the learning algorithm.
 
     The formula for Welford's algorithm is defined as:
@@ -23,9 +24,11 @@ class RewardScaler:
     """
 
     def __init__(self):
-        self.running_mean = 0               # Running mean of rewards.
-        self.running_sum_of_square_diffs = 0  # Running sum of squares of differences from the current mean.
-        self.count = 0                     # Count of observed samples.
+        self.running_mean = 0  # Running mean of rewards.
+        self.running_sum_of_square_diffs = (
+            0  # Running sum of squares of differences from the current mean.
+        )
+        self.count = 0  # Count of observed samples.
 
     def update(self, rewards):
         """
@@ -54,6 +57,10 @@ class RewardScaler:
         - Normalized rewards.
         """
         self.update(rewards)
-        variance = self.running_sum_of_square_diffs / (self.count - 1) if self.count > 1 else 1.0
+        variance = (
+            self.running_sum_of_square_diffs / (self.count - 1)
+            if self.count > 1
+            else 1.0
+        )
         std = np.sqrt(variance)
         return [(reward - self.running_mean) / (std + 1e-8) for reward in rewards]
