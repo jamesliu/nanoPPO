@@ -19,7 +19,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, Qu
 import click
 import json
 from copy import deepcopy
-from reward_scaler import RewardScaler
+from nanoppo.reward_scaler import RewardScaler
 import ray.tune as tune
 import warnings
 # Suppress the specific warning
@@ -49,7 +49,7 @@ def init_weights(m, init_type='he'):
         nn.init.zeros_(m.bias)
 
 class PolicyNetwork(nn.Module):
-    def __init__(self, state_size, action_size, init_type, min_log_std=-20, max_log_std=2):
+    def __init__(self, state_size, action_size, init_type, min_log_std=-20, max_log_std=0):
         super(PolicyNetwork, self).__init__()
         self.fc1 = nn.Linear(state_size, 64)
         self.fc2 = nn.Linear(64, 64)
@@ -90,8 +90,7 @@ class ValueNetwork(nn.Module):
         x = self.fc3(x)
         return x
 
-
-class ReplayBuffer:
+class RolloutBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
         self.buffer = deque(maxlen=capacity)
@@ -221,14 +220,17 @@ def setup_networks(env, optimizer_config, hidden_size, init_type, device, epochs
         policy = PolicyNetwork(observation_space.shape[0], action_dim, init_type=init_type).to(device)
         value = ValueNetwork(observation_space.shape[0], hidden_size=hidden_size, init_type=init_type).to(device)
 
+    policy_lr = optimizer_config['policy_lr']  # Add this to your config
+    value_lr = optimizer_config['value_lr']    # Add this to your config
+
     optimizer = optim.Adam([
-        {'params': policy.parameters()},
-        {'params': value.parameters()}], 
-        lr = optimizer_config['lr'], 
+        {'params': policy.parameters(), 'lr': policy_lr},
+        {'params': value.parameters(), 'lr': value_lr}], 
         betas=(optimizer_config['beta1'], optimizer_config['beta2']), 
         eps=optimizer_config['epsilon'], 
         weight_decay=optimizer_config['weight_decay']
         )
+
     if optimizer_config['scheduler'] is None:
         scheduler = None
     elif optimizer_config['scheduler'] == 'exponential':
@@ -290,10 +292,8 @@ class StateScaler:
             raise ValueError(f"Unknown scale type: {self.scale_type}")
         return r.astype(np.float32)
 
-# Updating the rollout function to update the RewardScaler
-def rollout_with_scaling(policy, value, env, device, replay_buffer:ReplayBuffer, state_scaler:StateScaler, reward_scaler, wandb_log, metrics_recorder:MetricsRecorder):
-    policy.eval()
-    value.eval()
+def rollout_with_episode(policy, value, env, device, replay_buffer:RolloutBuffer, state_scaler:StateScaler, reward_scaler:RewardScaler,
+                         wandb_log, metrics_recorder:MetricsRecorder):
     state, info = env.reset()
     if isinstance(state, dict):
         state = state['obs']
@@ -302,6 +302,7 @@ def rollout_with_scaling(policy, value, env, device, replay_buffer:ReplayBuffer,
     else:
         scaled_state = state_scaler.scale_state(state)
     done = False
+    truncated = False
     total_rewards = 0
     steps = 0
     unscaled_rewards = []
@@ -313,11 +314,11 @@ def rollout_with_scaling(policy, value, env, device, replay_buffer:ReplayBuffer,
     next_states_list = []
     dones_list = []
     
-    while not done:
+    while (not done):
         with torch.no_grad():
             action, log_prob, action_mean, action_std = select_action(policy, scaled_state, device, env.action_space.low[0], env.action_space.high[0])
             if wandb_log:
-                wandb.log({"Action/Mean": action_mean.item(), "Action/Std": action_std.item()})
+                wandb.log({"Policy/Action_Mean": action_mean.item(), "Policy/Action_Std": action_std.item()})
             if metrics_recorder:
                 metrics_recorder.record_actions(action_mean.item(), action_std.item())
         action = action.numpy()
@@ -349,15 +350,65 @@ def rollout_with_scaling(policy, value, env, device, replay_buffer:ReplayBuffer,
     # Scale rewards
     if reward_scaler is None:
         scaled_rewards = unscaled_rewards
+        click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
     else:
         scaled_rewards = reward_scaler.scale_rewards(unscaled_rewards)
 
-    for i in range(len(unscaled_rewards)):
-        replay_buffer.push(states_list[i], actions_list[i], log_probs_list[i], scaled_rewards[i], states_list[i], dones_list[i])
+    for i in range(len(scaled_rewards)):
+        replay_buffer.push(states_list[i], actions_list[i], log_probs_list[i], scaled_rewards[i], next_states_list[i], dones_list[i])
     
-    policy.train()
-    value.train()
     return total_rewards
+
+def rollout_with_step(policy, value, env, device, replay_buffer:RolloutBuffer, state_scaler:StateScaler, reward_scaler:RewardScaler,
+                         wandb_log, metrics_recorder:MetricsRecorder):
+    while True:
+        state, info = env.reset()
+        if isinstance(state, dict):
+            state = state['obs']
+        if state_scaler is None:
+            scaled_state = state
+        else:
+            scaled_state = state_scaler.scale_state(state)
+        done = False
+        total_rewards = 0
+        
+        while not done:
+            with torch.no_grad():
+                action, log_prob, action_mean, action_std = select_action(policy, scaled_state, device, env.action_space.low[0], env.action_space.high[0])
+                if wandb_log:
+                    wandb.log({"Policy/Action_Mean": action_mean.item(), "Policy/Action_Std": action_std.item()})
+                if metrics_recorder:
+                    metrics_recorder.record_actions(action_mean.item(), action_std.item())
+            action = action.numpy()
+            log_prob = log_prob.numpy()
+            
+            
+            next_state, reward, done, truncated, info = env.step(action)
+            done = done or truncated
+    
+            if isinstance(next_state, dict):
+                next_state = next_state['obs']
+    
+            if state_scaler is None:
+                scaled_next_state = next_state
+            else:
+                scaled_next_state = state_scaler.scale_state(next_state)
+    
+            scaled_state = scaled_next_state
+            total_rewards += reward
+            # Scale rewards
+            if reward_scaler is None:
+                scaled_reward = reward
+                click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
+            else:
+                scaled_reward = reward_scaler.scale_rewards(reward)
+    
+            replay_buffer.push(scaled_state, action, log_prob, scaled_reward, scaled_next_state, done)
+        
+            if done:
+                yield total_rewards
+            else:
+                yield None
 
 def compute_gae(next_value, rewards, masks, values, gamma, tau):
     values = values + [next_value]
@@ -401,18 +452,18 @@ def select_action(policy, state, device, action_min, action_max):
     action = action.clamp(action_min, action_max) # Clip the action to the valid range of the action space
     return action.cpu().detach(), log_prob.cpu().detach(), action_mean.cpu().detach(), action_std.cpu().detach()
 
-def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer, device,
+def train_networks(iter_num, policy, value, optimizer, scheduler, rollout_buffer, device,
                   batch_size, sgd_iters, gamma, clip_param, vf_coef, entropy_coef, max_grad_norm, use_gae, tau, l1_loss, wandb_log, metrics_recorder:MetricsRecorder):
-    assert(len(replay_buffer) >= batch_size)
+    assert(len(rollout_buffer) >= batch_size)
     for sgd_iter in range(sgd_iters):
-        # Sample from the replay buffer
-        batch_states, batch_actions, batch_probs, batch_rewards, batch_next_states, batch_dones = replay_buffer.sample(batch_size, device=device)
+        # Sample from the rollout buffer
+        batch_states, batch_actions, batch_probs, batch_rewards, batch_next_states, batch_dones = rollout_buffer.sample(batch_size, device=device)
     
         # Compute Advantage and Returns
         returns = []
         advs = []
         g = 0
-        # Compute returns and advantages from replay buffer samples out of order
+        # Compute returns and advantages from rollout buffer samples out of order
         with torch.no_grad():
             if use_gae:
                 # Compute Advantage using GAE and Returns
@@ -446,7 +497,7 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
         policy_loss, entropy_loss = surrogate(policy, old_probs=batch_probs, states=batch_states,
                                 actions=batch_actions, advs=advs, clip_param=clip_param,
                                 entropy_coef=entropy_coef)
-
+        """
         # clear the list of activation norms for each epoch
         activation_norms = []
         def hook(module, input, output):
@@ -460,8 +511,21 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
         hooks = []
         for module in value.modules():
             hooks.append(module.register_forward_hook(hook))
+        """
 
         value_loss = compute_value_loss(value, batch_states, returns, l1_loss)
+
+        # Dynamically adjust vf_coef based on observed training dynamics
+        loss_ratio = policy_loss.item() / (value_loss.item() + 1e-10)  # Adding a small epsilon to avoid division by zero
+        # If policy loss is significantly larger, increase vf_coef
+        if loss_ratio > 10:
+            vf_coef *= 1.1
+        # If value loss is significantly larger, decrease vf_coef
+        if loss_ratio < 0.1:
+            vf_coef *= 0.9
+        # Limit vf_coef to a reasonable range to prevent it from becoming too large or too small
+        vf_coef = min(max(vf_coef, 0.1), 10)
+
         # Compute total loss and update parameters
         total_loss = policy_loss + entropy_loss + vf_coef * value_loss
 
@@ -473,10 +537,12 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
 
         # compute activation norm
         # remove the forward hooks
+        """
         for hook in hooks:
             hook.remove()
         # compute the mean activation norm for the value network
         activation_norm = sum(activation_norms) / len(activation_norms)
+        """
 
         optimizer.step()
         if scheduler is not None:
@@ -488,11 +554,13 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
                       "Loss/Total": total_loss.item(), 
                       "Loss/Policy": policy_loss.item(),
                       "Loss/Entropy": entropy_loss.item(),
-                      "Loss/Value": value_loss.item(),})
+                      "Loss/Value": value_loss.item(),
+                      "Loss/Coef_Value": vf_coef * value_loss.item()})
             #wandb.log({"Gradients/PolicyNet": wandb.Histogram(policy.fc1.weight.grad.detach().cpu().numpy())})
             wandb.log({"Policy/Gradient_Norm": policy_grad_norm,
                         "Value/Gradient_Norm": value_grad_norm,
-                        "Value/Activation_Norm": activation_norm})
+                        #"Value/Activation_Norm": activation_norm
+                        })
             #wandb.log({"Gradients/ValueNet": wandb.Histogram(value.fc1.weight.grad.detach().cpu().numpy())})
             log_std_value = policy.log_std.detach().cpu().numpy()
             wandb.log({"Policy/Log_Std": log_std_value})
@@ -514,9 +582,9 @@ def train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer,
 def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_rewards:bool, scale_states:str,
           num_rollout, epochs, batch_size, sgd_iters, gamma,
           optimizer_config, hidden_size, init_type, clip_param, vf_coef, entropy_coef, max_grad_norm, use_gae, tau, l1_loss,
-          wandb_log, verbose, replay_buffer_size, replay_start_size,
+          wandb_log, verbose, rollout_buffer_size, rollout_start_size,
           checkpoint_interval=-1, checkpoint_path=None, resume_training=False, resume_epoch=None, tune_report=False, project='continuous-action-ppo'):
-    print('Training PPO agent on environment: ', env_name, ' for ', epochs, ' epochs', ' and num rollout: ', num_rollout, ' and replay buffer size: ', replay_buffer_size, ' and replay start size: ', replay_start_size,
+    print('Training PPO agent on environment: ', env_name, ' for ', epochs, ' epochs', ' and num rollout: ', num_rollout, ' and rollout buffer size: ', rollout_buffer_size, ' and replay start size: ', rollout_start_size,
           ' with batch size: ', batch_size, ' and sgd iters: ', sgd_iters, ' and gamma: ', gamma, ' and optimizer config: ', optimizer_config,
           ' and hidden size: ', hidden_size, ' and init type: ', init_type, 
           ' and clip param: ', clip_param, ' and vf coef: ', vf_coef, ' and entropy coef: ', entropy_coef, ' and max grad norm: ', max_grad_norm,
@@ -535,7 +603,7 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
     # Set up environment and neural networks
     env = setup_env(env_name, env_config)
     policy, value, optimizer, scheduler = setup_networks(env, optimizer_config, hidden_size=hidden_size, init_type=init_type, device=device, epochs=epochs, sgd_iters=sgd_iters, attention=attention)
-    replay_buffer = ReplayBuffer(replay_buffer_size)
+    rollout_buffer = RolloutBuffer(rollout_buffer_size)
     if rescaling_rewards:
         reward_scaler = RewardScaler()
     else:
@@ -559,20 +627,26 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
     iter_num = 0
     average_reward = - np.inf
     for epoch in get_progress_iterator(last_epoch, epochs, verbose):
+        policy.eval()
+        value.eval()
         if on_policy:
-            replay_buffer.clear() # clear the replay buffer, all data is from the current policy
+            rollout_buffer.clear() # clear the rollout buffer, all data is from the current policy
             for r in range(num_rollout):
-                total_rewards = rollout_with_scaling(policy, value, env, device, replay_buffer, state_scaler, reward_scaler, wandb_log, metrics_recorder)
-                episode_rewards.append(total_rewards)
+                total_rewards = rollout_with_episode(policy, value, env, device, rollout_buffer, state_scaler, reward_scaler, wandb_log, metrics_recorder)
+                if total_rewards:
+                    episode_rewards.append(total_rewards)
         else: 
-            # the replay buffer is filled with data from the current policy or old policies
-            # improve sampling efficiency; however, keep replay buffer size reasonable small so that there is no much drift in the data distribution
-            total_rewards = rollout_with_scaling(policy, value, env, device, replay_buffer, state_scaler, reward_scaler, wandb_log, metrics_recorder)
-            episode_rewards.append(total_rewards)
-            if len(replay_buffer) < replay_start_size:
-                print('epoch', epoch, 'rollout', len(replay_buffer))
+            # the rollout buffer is filled with data from the current policy or old policies
+            # improve sampling efficiency; however, keep rollout buffer size reasonable small so that there is no much drift in the data distribution
+            total_rewards = rollout_with_episode(policy, value, env, device, rollout_buffer, state_scaler, reward_scaler, wandb_log, metrics_recorder)
+            if total_rewards:
+                episode_rewards.append(total_rewards)
+            if len(rollout_buffer) < rollout_start_size:
+                print('epoch', epoch, 'rollout', len(rollout_buffer))
                 continue
-        _,_, iter_num = train_networks(iter_num, policy, value, optimizer, scheduler, replay_buffer, device, 
+        policy.train()
+        value.train()
+        _,_, iter_num = train_networks(iter_num, policy, value, optimizer, scheduler, rollout_buffer, device, 
                        batch_size, sgd_iters, gamma, clip_param, vf_coef, entropy_coef, max_grad_norm, 
                        use_gae=use_gae, tau=tau, l1_loss=l1_loss, wandb_log = wandb_log, metrics_recorder=metrics_recorder)
         if checkpoint_interval > 0 and ((epoch + 1) % checkpoint_interval) == 0:
@@ -589,7 +663,7 @@ def train(env_name, env_config, attention:bool, on_policy:bool, rescaling_reward
                 tune.report(mean_reward=average_reward)  # Reporting the reward to Tune
             else:
                 if verbose or (epoch+1) % 10 == 0:
-                    print('epoch', epoch + 1, 'average reward', average_reward, 'num_rollout', num_rollout, 'rollout episodes', len(episode_rewards))
+                    print('epoch', epoch + 1, 'average reward', average_reward, 'rollout episodes', len(episode_rewards))
     
     metrics_recorder.to_csv()
     if wandb_log:
@@ -604,25 +678,26 @@ config = {
     'rescaling_rewards': True, 
     'scale_states': "standard", # [None, "env", "standard", "minmax", "robust", "quantile"]:
     'init_type':'he', # xavier, he
-    'use_gae':True, 'l1_loss':False, 
-    'num_rollout': 10, 'replay_buffer_size': 4096, 'sgd_iters':10,
-    'hidden_size':64, 'replay_start_size': 100, 
+    'use_gae':False, 'l1_loss':False, 
+    'num_rollout': 20, 'rollout_buffer_size': 4096, 'sgd_iters':20,
+    'hidden_size':64, 'rollout_start_size': 100, 
     'epochs': 100, 'batch_size': 64, 
-    'gamma': 0.99, 'vf_coef': 1.35, 
-    'clip_param': 0.2, 'max_grad_norm': 1.0, 
-    'entropy_coef': 0, 'tau': 0.99, 
+    'gamma': 0.99, 'vf_coef': 0.5, 
+    'clip_param': 0.2, 'max_grad_norm': 0.9, 
+    'entropy_coef': 1e-4, 'tau': 0.97, 
     'wandb_log': True, 'verbose':True, 'checkpoint_interval':100, 
 }
 
 optimizer_config = { 
-    "lr": 1e-4,
+    "policy_lr": 3*1e-4,
+    "value_lr": 4*1e-5,
     "beta1": 0.9,
     "beta2": 0.98,
     "epsilon": 1e-8,
     "weight_decay": 1e-4,
     "scheduler": "cosine", # None, exponential, cosine
     "exponential_gamma": 0.95, # for exponential scheduler only
-    "cosine_T_max": 50 # for cosine scheduler only
+    "cosine_T_max": 20 # for cosine scheduler only
 }
 
 def update_config(aconfig):
@@ -639,20 +714,13 @@ def update_config(aconfig):
     return c 
     
 if __name__ == '__main__':
-    env_name = 'MountainCarContinuous-v0'
-    #env_name = 'Pendulum-v1'
+    #env_name = 'MountainCarContinuous-v0'
+    env_name = 'Pendulum-v1'
     if env_name == 'MountainCarContinuous-v0':
-        best_config = { 
-            'env_name': env_name, 
-           # 'lr': 3.0020124544037098e-06, 'weight_decay': 0.0007191991382247122, 'num_rollout': 5, 'sgd_iters': 10, 'replay_buffer_size': 2048, 'batch_size': 256, 'l1_loss': False, 'clip_param': 0.2429569841647761, 'max_grad_norm': 0.723216732449406, 'vf_coef': 1.4323262969474186
-           #'lr': 6.650300558302055e-05, 'weight_decay': 1.310444684581239e-06, 'num_rollout': 10, 'sgd_iters': 10, 'replay_buffer_size': 4096, 'batch_size': 512, 'l1_loss': True, 'clip_param': 0.26941419934626953, 'max_grad_norm': 1.7121502477683643, 'vf_coef': 0.9111674798892397
-           'lr': 4.246079717528021e-05, 'weight_decay': 3.6120983119903048e-06, 'num_rollout': 10, 'sgd_iters': 1, 'replay_buffer_size': 1024, 'batch_size': 128, 'l1_loss': True, 'clip_param': 0.11126373857266765, 'max_grad_norm': 0.7802100736803175, 'vf_coef': 1.2240780287507589
-        }
+        best_config = {}
     elif env_name == 'Pendulum-v1':
-        best_config = {
-            'env_name': env_name,
-            'lr': 3.0020124544037098e-06, 'weight_decay': 0.0007191991382247122, 'num_rollout': 5, 'sgd_iters': 10, 'replay_buffer_size': 2048, 'batch_size': 256, 'l1_loss': False, 'clip_param': 0.2429569841647761, 'max_grad_norm': 1.723216732449406, 'vf_coef': 1.4323262969474186
-        }
+        best_config = {}
+    best_config['env_name'] = env_name
     train_config = update_config(best_config) 
     print('train config', train_config)
     policy, value, average_reward, total_iters = train(**train_config, tune_report=False)
