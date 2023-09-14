@@ -56,4 +56,4 @@ class RewardScaler:
         self.update(rewards)
         variance = self.running_sum_of_square_diffs / (self.count - 1) if self.count > 1 else 1.0
         std = np.sqrt(variance)
-        return (rewards - self.running_mean) / (std + 1e-8)
+        return [(reward - self.running_mean) / (std + 1e-8) for reward in rewards]
