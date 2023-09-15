@@ -461,6 +461,13 @@ def rollout_with_step(
                     env.action_space.low[0],
                     env.action_space.high[0],
                 )
+                if wandb_log:
+                    wandb.log(
+                    {
+                        "Policy/Action_Mean": action_mean.item(),
+                        "Policy/Action_Std": action_std.item(),
+                    }
+                )
             action = action.numpy()
             log_prob = log_prob.numpy()
 
@@ -743,34 +750,32 @@ def train_networks(
 
 
 def train(
-    env_name,
-    env_config,
-    on_policy: bool,
+    env_name:str,
+    env_config:dict,
     rescaling_rewards: bool,
     scale_states: str,
-    epochs,
-    batch_size,
-    sgd_iters,
-    gamma,
-    optimizer_config,
-    hidden_size,
-    init_type,
-    clip_param,
-    vf_coef,
-    entropy_coef,
-    max_grad_norm,
-    use_gae,
-    tau,
-    l1_loss,
-    wandb_log,
-    verbose,
-    rollout_buffer_size,
-    rollout_start_size,
-    checkpoint_interval=-1,
-    checkpoint_path=None,
-    resume_training=False,
-    resume_epoch=None,
-    tune_report=False,
+    epochs:int,
+    batch_size:int,
+    sgd_iters:int,
+    gamma:float,
+    optimizer_config:dict,
+    hidden_size:int,
+    init_type:str,
+    clip_param:float,
+    vf_coef:float,
+    entropy_coef:float,
+    max_grad_norm:float,
+    use_gae:bool,
+    tau:float,
+    l1_loss:bool,
+    wandb_log:bool,
+    verbose:bool,
+    rollout_buffer_size:int,
+    checkpoint_interval:int=-1,
+    checkpoint_path:str=None,
+    resume_training:bool=False,
+    resume_epoch:bool=None,
+    tune_report:bool=False,
     project="continuous-action-ppo",
 ):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -907,32 +912,30 @@ def train(
         "total iters",
         total_iters,
     )
-    return policy, value, average_reward, iter_num
+    return policy, value, average_reward, train_iters
 
 
 config = {
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
-    "on_policy": True,
     "epochs": 50,
     "rescaling_rewards": True,
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
     "use_gae": False,
+    "tau": 0.97,
     "l1_loss": False,
     "rollout_buffer_size": 4096,
     "sgd_iters": 20,
     "hidden_size": 64,
-    "rollout_start_size": 100,
     "batch_size": 64,
     "gamma": 0.99,
     "vf_coef": 0.5,
     "clip_param": 0.2,
     "max_grad_norm": 0.9,
     "entropy_coef": 1e-4,
-    "tau": 0.97,
-    "wandb_log": False,
-    "verbose": False,
+    "wandb_log": True,
+    "verbose": True,
     "checkpoint_interval": 100,
 }
 
@@ -943,11 +946,10 @@ optimizer_config = {
     "beta2": 0.98,
     "epsilon": 1e-8,
     "weight_decay": 1e-4,
-    "scheduler": "cosine",  # None, exponential, cosine
+    "scheduler": 'cosine',  # None, exponential, cosine
     "exponential_gamma": 0.95,  # for exponential scheduler only
-    "cosine_T_max": 1000,  # for cosine scheduler only
+    "cosine_T_max": config['epochs']* config['sgd_iters'],  # for cosine scheduler only
 }
-
 
 def update_config(aconfig):
     o = deepcopy(optimizer_config)
@@ -972,7 +974,7 @@ def update_config(aconfig):
 
 if __name__ == "__main__":
     env_name = "MountainCarContinuous-v0"
-    # env_name = 'Pendulum-v1'
+    env_name = 'Pendulum-v1'
     if env_name == "MountainCarContinuous-v0":
         best_config = {}
     elif env_name == "Pendulum-v1":
