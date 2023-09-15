@@ -15,17 +15,13 @@ import glob
 from typing import Tuple
 from collections import deque, defaultdict
 from pathlib import Path
-from sklearn.preprocessing import (
-    StandardScaler,
-    MinMaxScaler,
-    RobustScaler,
-    QuantileTransformer,
-)
+
 import click
 import json
 from copy import deepcopy
 from nanoppo.reward_scaler import RewardScaler
 from nanoppo.rollout_buffer import RolloutBuffer
+from nanoppo.state_scaler import StateScaler
 import ray.tune as tune
 from time import time
 import warnings
@@ -46,7 +42,7 @@ def set_seed(seed):
     # If using other libraries/frameworks, set the seed for those as well
 
 
-SEED = 43 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 101
+SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
 set_seed(SEED)
 
 # Define the weight initialization function
@@ -79,7 +75,7 @@ class PolicyNetwork(nn.Module):
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        mean = self.fc3(x)
+        mean = torch.tanh(self.fc3(x))
 
         # Clamp log_std to ensure it's within a specific range
         clamped_log_std = self.log_std.clamp(self.min_log_std, self.max_log_std)
@@ -260,48 +256,6 @@ def log_rewards(rewards):
         }
     )
 
-class StateScaler:
-    def __init__(self, env, scale_type, sample_size=10000):
-        self.env = env
-        self.scale_type = scale_type
-
-        if self.scale_type in ["standard", "minmax", "robust", "quantile"]:
-            self.scaler = self._init_scaler(env, sample_size, scale_type)
-
-    def _init_scaler(self, env, sample_size, scale_type):
-        state_space_samples = np.array(
-            [env.observation_space.sample() for _ in range(sample_size)]
-        )
-
-        if scale_type == "standard":
-            scaler = StandardScaler()
-        elif scale_type == "minmax":
-            scaler = MinMaxScaler()
-        elif scale_type == "robust":
-            scaler = RobustScaler()
-        elif scale_type == "quantile":
-            scaler = QuantileTransformer()
-        else:
-            raise ValueError(f"Unknown scale type: {scale_type}")
-
-        scaler.fit(state_space_samples)
-        return scaler
-
-    def scale_state(self, state):
-        if self.scale_type in ["standard", "minmax", "robust", "quantile"]:
-            scaled = self.scaler.transform([state])
-            r = scaled[0]  # Return a 1D array instead of 2D
-        elif self.scale_type == "env":
-            # -1 to 1 scaling
-            r = (
-                2
-                * (state - self.env.observation_space.low)
-                / (self.env.observation_space.high - self.env.observation_space.low)
-                - 1
-            )
-        else:
-            raise ValueError(f"Unknown scale type: {self.scale_type}")
-        return r.astype(np.float32)
 
 def rescale_action(predicted_action, action_min, action_max):
     return action_min + (predicted_action - (-1)) / 2 * (action_max - action_min)
@@ -357,7 +311,6 @@ def rollout_with_episode(
                 metrics_recorder.record_actions(action_mean.item(), action_std.item())
         action = action.numpy()
         log_prob = log_prob.numpy()
-
         # Store state, action, and log_prob
         states_list.append(scaled_state)
         actions_list.append(action)
@@ -460,14 +413,11 @@ def rollout_with_step(
             # Scale rewards
             if reward_scaler is None:
                 scaled_reward = reward
-                click.secho(
-                    "Warning: Reward scaling is not applied.", fg="yellow", err=True
-                )
+                #click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
             else:
                 scaled_reward = reward_scaler.scale_rewards([reward])[0]
-
             rollout_buffer.push(
-                scaled_state, action, log_prob, scaled_reward, scaled_next_state, done
+                scaled_state, action.squeeze(), log_prob, scaled_reward, scaled_next_state, done
             )
             total_steps += 1
             steps += 1
@@ -521,6 +471,7 @@ def select_action(policy:PolicyNetwork, state, device, action_min, action_max):
     state = torch.from_numpy(state).float().to(device)
     dist = policy(state)
     action = dist.sample()
+    # If action space is continuous, compute the log_prob of the action, sum(-1) to sum over all dimensions
     log_prob = dist.log_prob(action).sum(-1)
 
     # Extract mean and std of the action distribution
@@ -951,13 +902,15 @@ def update_config(aconfig):
     return c
 
 if __name__ == "__main__":
-    env_name = "MountainCarContinuous-v0"
+    #env_name = "MountainCarContinuous-v0"
     env_name = 'Pendulum-v1'
+
     if env_name == "MountainCarContinuous-v0":
         best_config = {} #{'env_name': 'MountainCarContinuous-v0', 'policy_lr': 1.3854471971413998e-06, 'value_lr': 4.324566907389423e-05, 'weight_decay': 4.628061893014567e-05, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 64, 'clip_param': 0.2190924577076417, 'max_grad_norm': 0.5806241298866155, 'vf_coef': 0.8005184316885099, 'entropy_coef': 6.504618115019088e-06, 'tau': 0.9020595524919125} 
         best_config = {'env_name': 'MountainCarContinuous-v0', 'policy_lr': 2.2139290514335154e-06, 'value_lr': 6.717375374452914e-05, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 20, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
     elif env_name == "Pendulum-v1":
-        best_config = {'epochs':100}
+        #best_config = {'epochs':100}
+        best_config = {'epochs':5000, 'env_name': 'Pendulum-v1', 'policy_lr': 5.8281040558151076e-05, 'value_lr': 0.0001120576307122378, 'weight_decay': 0.0008145726123243288, 'sgd_iters': 2, 'rollout_buffer_size': 512, 'use_gae': False, 'init_type': 'he', 'batch_size': 512, 'clip_param': 0.21698505583910346, 'max_grad_norm': 0.5552556781050277, 'vf_coef': 1.90491891614271956, 'entropy_coef': 3.015475350516561e-05, 'tau': 0.9552356381259465}
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
     print("train config", train_config)
