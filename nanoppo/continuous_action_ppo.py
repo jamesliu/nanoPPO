@@ -260,100 +260,6 @@ def log_rewards(rewards):
 def rescale_action(predicted_action, action_min, action_max):
     return action_min + (predicted_action - (-1)) / 2 * (action_max - action_min)
 
-def rollout_with_episode(
-    policy,
-    value,
-    env,
-    device,
-    rollout_buffer: RolloutBuffer,
-    state_scaler: StateScaler,
-    reward_scaler: RewardScaler,
-    wandb_log,
-    metrics_recorder: MetricsRecorder,
-):
-    state, info = env.reset()
-    if isinstance(state, dict):
-        state = state["obs"]
-    if state_scaler is None:
-        scaled_state = state
-    else:
-        scaled_state = state_scaler.scale_state(state)
-    done = False
-    truncated = False
-    total_rewards = 0
-    steps = 0
-    unscaled_rewards = []
-
-    # Lists to store states, actions, and log_probs for the entire episode
-    states_list = []
-    actions_list = []
-    log_probs_list = []
-    next_states_list = []
-    dones_list = []
-
-    while not done:
-        with torch.no_grad():
-            action, log_prob, action_mean, action_std = select_action(
-                policy,
-                scaled_state,
-                device,
-                env.action_space.low[0],
-                env.action_space.high[0],
-            )
-            if wandb_log:
-                wandb.log(
-                    {
-                        "Policy/Action_Mean": action_mean.item(),
-                        "Policy/Action_Std": action_std.item(),
-                    }
-                )
-            if metrics_recorder:
-                metrics_recorder.record_actions(action_mean.item(), action_std.item())
-        action = action.numpy()
-        log_prob = log_prob.numpy()
-        # Store state, action, and log_prob
-        states_list.append(scaled_state)
-        actions_list.append(action)
-        log_probs_list.append(log_prob)
-        
-        #rescaled_action = rescale_action(action, env.action_space.low[0], env.action_space.high[0])
-        rescaled_action = action
-        next_state, reward, done, truncated, info = env.step(rescaled_action)
-        done = done or truncated
-
-        if isinstance(next_state, dict):
-            next_state = next_state["obs"]
-
-        if state_scaler is None:
-            scaled_next_state = next_state
-        else:
-            scaled_next_state = state_scaler.scale_state(next_state)
-        # Store next_state and done
-        next_states_list.append(scaled_next_state)
-        dones_list.append(done)
-
-        scaled_state = scaled_next_state
-        total_rewards += reward
-        unscaled_rewards.append(reward)
-        steps += 1
-    # Scale rewards
-    if reward_scaler is None:
-        scaled_rewards = unscaled_rewards
-        click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
-    else:
-        scaled_rewards = reward_scaler.scale_rewards(unscaled_rewards)
-
-    for i in range(len(scaled_rewards)):
-        rollout_buffer.push(
-            states_list[i],
-            actions_list[i],
-            log_probs_list[i],
-            scaled_rewards[i],
-            next_states_list[i],
-            dones_list[i],
-        )
-    return total_rewards
-
 def rollout_with_step(
     policy,
     value,
@@ -388,13 +294,10 @@ def rollout_with_step(
                     env.action_space.low[0],
                     env.action_space.high[0],
                 )
-                if wandb_log:
-                    wandb.log(
-                    {
-                        "Policy/Action_Mean": action_mean.item(),
-                        "Policy/Action_Std": action_std.item(),
-                    }
-                )
+            if wandb_log:
+                wandb.log( {f"Policy/Action{i}_Mean":action_mean  for i, action_mean in enumerate(action_mean.numpy().tolist())})
+                wandb.log( {f"Policy/Action{i}_Std":action_std  for i, action_std in enumerate(action_std.numpy().tolist())})
+
             action = action.numpy()
             log_prob = log_prob.numpy()
 
