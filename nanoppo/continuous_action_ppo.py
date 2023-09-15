@@ -25,7 +25,9 @@ import click
 import json
 from copy import deepcopy
 from nanoppo.reward_scaler import RewardScaler
+from nanoppo.rollout_buffer import RolloutBuffer
 import ray.tune as tune
+from time import time
 import warnings
 
 # Suppress the specific warning
@@ -33,7 +35,6 @@ warnings.filterwarnings(
     "ignore",
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
-
 
 def set_seed(seed):
     random.seed(seed)
@@ -45,9 +46,8 @@ def set_seed(seed):
     # If using other libraries/frameworks, set the seed for those as well
 
 
-# SEED = 43 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 101
-# set_seed(SEED)
-
+SEED = 43 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 101
+set_seed(SEED)
 
 # Define the weight initialization function
 def init_weights(m, init_type="he"):
@@ -60,16 +60,16 @@ def init_weights(m, init_type="he"):
             raise ValueError(f"Initialization type {init_type} not recognized.")
         nn.init.zeros_(m.bias)
 
-
 class PolicyNetwork(nn.Module):
     def __init__(
-        self, state_size, action_size, init_type, min_log_std=-20, max_log_std=0
+        self, state_size, action_size, init_type, min_log_std=-10, max_log_std=0.5
     ):
         super(PolicyNetwork, self).__init__()
         self.fc1 = nn.Linear(state_size, 64)
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, action_size)
-        self.log_std = nn.Parameter(torch.zeros(action_size))
+        #self.log_std = nn.Parameter(torch.zeros(action_size))
+        self.log_std = nn.Parameter(torch.full((action_size,), -0.511))
         self.min_log_std = min_log_std
         self.max_log_std = max_log_std
 
@@ -105,34 +105,6 @@ class ValueNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-
-
-class RolloutBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = deque(maxlen=capacity)
-
-    def push(self, state, action, log_prob, reward, next_state, done):
-        self.buffer.append((state, action, log_prob, reward, next_state, done))
-
-    def sample(self, batch_size, device):
-        states, actions, log_probs, rewards, next_states, dones = zip(
-            *random.sample(self.buffer, batch_size)
-        )
-        states_t = torch.tensor(np.array(states), device=device)
-        actions_t = torch.tensor(np.array(actions), device=device)
-        log_probs_t = torch.tensor(np.array(log_probs), device=device)
-        rewards_t = torch.tensor(np.array(rewards), device=device)
-        next_states_t = torch.tensor(np.array(next_states), device=device)
-        dones_t = torch.tensor(np.array(dones), device=device)
-        return states_t, actions_t, log_probs_t, rewards_t, next_states_t, dones_t
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def clear(self):
-        self.buffer.clear()
-
 
 class MetricsRecorder:
     def __init__(self):
@@ -288,7 +260,6 @@ def log_rewards(rewards):
         }
     )
 
-
 class StateScaler:
     def __init__(self, env, scale_type, sample_size=10000):
         self.env = env
@@ -332,6 +303,8 @@ class StateScaler:
             raise ValueError(f"Unknown scale type: {self.scale_type}")
         return r.astype(np.float32)
 
+def rescale_action(predicted_action, action_min, action_max):
+    return action_min + (predicted_action - (-1)) / 2 * (action_max - action_min)
 
 def rollout_with_episode(
     policy,
@@ -389,8 +362,10 @@ def rollout_with_episode(
         states_list.append(scaled_state)
         actions_list.append(action)
         log_probs_list.append(log_prob)
-
-        next_state, reward, done, truncated, info = env.step(action)
+        
+        #rescaled_action = rescale_action(action, env.action_space.low[0], env.action_space.high[0])
+        rescaled_action = action
+        next_state, reward, done, truncated, info = env.step(rescaled_action)
         done = done or truncated
 
         if isinstance(next_state, dict):
@@ -424,9 +399,7 @@ def rollout_with_episode(
             next_states_list[i],
             dones_list[i],
         )
-
     return total_rewards
-
 
 def rollout_with_step(
     policy,
@@ -436,8 +409,8 @@ def rollout_with_step(
     rollout_buffer: RolloutBuffer,
     state_scaler: StateScaler,
     reward_scaler: RewardScaler,
-    wandb_log,
-    metrics_recorder: MetricsRecorder,
+    wandb_log:bool,
+    debug: bool
 ):
     total_steps =0
     while True:
@@ -450,9 +423,10 @@ def rollout_with_step(
         else:
             scaled_state = state_scaler.scale_state(state)
         done = False
-        total_rewards = 0
+        truncated = False
+        accumulated_rewards = 0
 
-        while not done:
+        while (not done) and (not truncated):
             with torch.no_grad():
                 action, log_prob, action_mean, action_std = select_action(
                     policy,
@@ -472,7 +446,6 @@ def rollout_with_step(
             log_prob = log_prob.numpy()
 
             next_state, reward, done, truncated, info = env.step(action)
-            done = done or truncated
 
             if isinstance(next_state, dict):
                 next_state = next_state["obs"]
@@ -483,7 +456,7 @@ def rollout_with_step(
                 scaled_next_state = state_scaler.scale_state(next_state)
 
             scaled_state = scaled_next_state
-            total_rewards += reward
+            accumulated_rewards += reward
             # Scale rewards
             if reward_scaler is None:
                 scaled_reward = reward
@@ -498,7 +471,10 @@ def rollout_with_step(
             )
             total_steps += 1
             steps += 1
-            if done:
+            if done or truncated:
+                total_rewards = accumulated_rewards
+                if debug:
+                     print('total steps', total_steps, 'steps', steps, 'accumulated_rewards', accumulated_rewards,  'done', done, 'truncated', truncated, 'reward', reward, 'scaled_reward', scaled_reward)
                 yield total_rewards, steps, total_steps
             else:
                 yield None, steps, total_steps
@@ -541,7 +517,7 @@ def compute_value_loss(value, states, returns, l1_loss):
     return value_loss
 
 
-def select_action(policy, state, device, action_min, action_max):
+def select_action(policy:PolicyNetwork, state, device, action_min, action_max):
     state = torch.from_numpy(state).float().to(device)
     dist = policy(state)
     action = dist.sample()
@@ -769,7 +745,7 @@ def train(
     tau:float,
     l1_loss:bool,
     wandb_log:bool,
-    verbose:bool,
+    verbose:int,
     rollout_buffer_size:int,
     checkpoint_interval:int=-1,
     checkpoint_path:str=None,
@@ -832,7 +808,7 @@ def train(
                 state_scaler,
                 reward_scaler,
                 wandb_log,
-                metrics_recorder,
+                debug = True if verbose > 1 else False
             )
     # Set up training loop
     episode_rewards = []
@@ -841,6 +817,7 @@ def train(
     train_iters = 0
     rollout_steps = 0
     average_reward = -np.inf
+    start = time()
     for epoch in get_progress_iterator(last_epoch, epochs, verbose):
         policy.eval()
         value.eval()
@@ -877,8 +854,8 @@ def train(
             save_checkpoint(policy, value, optimizer, epoch, checkpoint_path)
 
         # Average of last 10 episodes or all episodes if less than 10 episodes are available
+        average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
         if len(episode_rewards) >= 20:
-            average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
             if wandb_log:
                 log_rewards(episode_rewards[-20:])
             if metrics_recorder:
@@ -886,7 +863,7 @@ def train(
             if tune_report:
                 tune.report(mean_reward=average_reward)  # Reporting the reward to Tune
         
-        if verbose or (epoch + 1) % 10 == 0:
+        if verbose > 0:
             print(
                 "epoch",
                 epoch + 1,
@@ -901,6 +878,8 @@ def train(
                 "rollout steps",
                 rollout_steps,
             )
+    end = time()
+    print('Training time: ', round((end - start)/60, 2), 'minutes')
 
     metrics_recorder.to_csv()
     if wandb_log:
@@ -918,7 +897,7 @@ def train(
 config = {
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
-    "epochs": 50,
+    "epochs": 30,
     "rescaling_rewards": True,
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
@@ -930,24 +909,24 @@ config = {
     "hidden_size": 64,
     "batch_size": 64,
     "gamma": 0.99,
-    "vf_coef": 0.5,
+    "vf_coef": 1,
     "clip_param": 0.2,
     "max_grad_norm": 0.9,
     "entropy_coef": 1e-4,
     "wandb_log": True,
-    "verbose": True,
+    "verbose": 2,
     "checkpoint_interval": 100,
 }
 
 optimizer_config = {
     "policy_lr": 3 * 1e-4,
-    "value_lr": 1 * 1e-5,
+    "value_lr": 3 * 1e-5,
     "beta1": 0.9,
     "beta2": 0.98,
     "epsilon": 1e-8,
     "weight_decay": 1e-4,
     "scheduler": 'cosine',  # None, exponential, cosine
-    "exponential_gamma": 0.95,  # for exponential scheduler only
+    "exponential_gamma": 0.9995,  # for exponential scheduler only
     "cosine_T_max": config['epochs']* config['sgd_iters'],  # for cosine scheduler only
 }
 
@@ -971,14 +950,14 @@ def update_config(aconfig):
     )
     return c
 
-
 if __name__ == "__main__":
     env_name = "MountainCarContinuous-v0"
     env_name = 'Pendulum-v1'
     if env_name == "MountainCarContinuous-v0":
-        best_config = {}
+        best_config = {} #{'env_name': 'MountainCarContinuous-v0', 'policy_lr': 1.3854471971413998e-06, 'value_lr': 4.324566907389423e-05, 'weight_decay': 4.628061893014567e-05, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 64, 'clip_param': 0.2190924577076417, 'max_grad_norm': 0.5806241298866155, 'vf_coef': 0.8005184316885099, 'entropy_coef': 6.504618115019088e-06, 'tau': 0.9020595524919125} 
+        best_config = {'env_name': 'MountainCarContinuous-v0', 'policy_lr': 2.2139290514335154e-06, 'value_lr': 6.717375374452914e-05, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 20, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
     elif env_name == "Pendulum-v1":
-        best_config = {}
+        best_config = {'epochs':100}
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
     print("train config", train_config)
