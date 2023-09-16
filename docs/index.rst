@@ -22,3 +22,4 @@ Contents:
    :caption: Contents:
 
    installation
+   reward_rescaling
