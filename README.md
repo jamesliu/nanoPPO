@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nanoPPO.svg)](https://pypi.org/project/nanoPPO/)
 [![Changelog](https://img.shields.io/github/v/release/jamesliu/nanoPPO?include_prereleases&label=changelog)](https://github.com/jamesliu/nanoPPO/releases)
 [![Tests](https://github.com/jamesliu/nanoPPO/workflows/Test/badge.svg)](https://github.com/jamesliu/nanoPPO/actions?query=workflow%3ATest)
+[![Documentation Status](https://readthedocs.org/projects/nanoPPO/badge/?version=stable)](http://nanoPPO.readthedocs.org/en/stable/?badge=stable)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/jamesliu/nanoPPO/blob/main/LICENSE)
 
 nanoPPO is a Python package that provides a simple and efficient implementation of the Proximal Policy Optimization (PPO) algorithm for reinforcement learning. It is designed to support both continuous and discrete action spaces, making it suitable for a wide range of applications.
