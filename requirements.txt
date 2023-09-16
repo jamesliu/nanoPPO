@@ -3,3 +3,4 @@ torch
 gym
 wandb
 tqdm
+sklearn
