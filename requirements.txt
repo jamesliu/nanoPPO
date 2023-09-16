@@ -2,3 +2,4 @@ numpy
 torch
 gym
 wandb
+tqdm
