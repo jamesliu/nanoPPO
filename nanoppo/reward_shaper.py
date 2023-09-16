@@ -6,7 +6,7 @@ class RewardShaper:
     def __init__(self):
         pass
 
-    def reshape(self, rewards, observations):
+    def reshape(self, rewards, observations, next_observations=None):
         """
         This method should be overridden by subclasses to provide specific reward shaping logic.
         
@@ -36,7 +36,7 @@ class MountainCarRewardShaper(RewardShaper):
         self.position_weight = position_weight
         self.velocity_weight = velocity_weight
 
-    def reshape(self, rewards, observations):
+    def reshape(self, rewards, observations, next_observations=None):
         """
         Reward shaping for MountainCar based on position and velocity.
 
@@ -92,7 +92,7 @@ class MountainCarHeightRewardShaper(RewardShaper):
         # This formula is derived from the MountainCar environment's terrain shape.
         return np.sin(3 * position) * 0.45 + 0.55
 
-    def reshape(self, rewards, observations):
+    def reshape(self, rewards, observations, next_observations=None):
         """
         Reward shaping for MountainCar based on the car's height.
 
@@ -146,7 +146,7 @@ class MountainCarAdvancedRewardShaper(RewardShaper):
         """
         return np.sin(3 * position) * 0.45 + 0.55
 
-    def reshape(self, rewards, observations):
+    def reshape(self, rewards, observations, next_observations=None):
         """
         Advanced reward shaping for MountainCar based on multiple techniques.
 
@@ -189,7 +189,7 @@ class MountainCarDirectionalRewardShaper(RewardShaper):
     def height(self, position):
         return np.sin(3 * position) * 0.45 + 0.55
 
-    def reshape(self, rewards, observations):
+    def reshape(self, rewards, observations, next_observations=None):
         reshaped_rewards = []
         
         for reward, obs in zip(rewards, observations):
@@ -214,6 +214,34 @@ class MountainCarDirectionalRewardShaper(RewardShaper):
         
         return reshaped_rewards
 
+import torch
+class TDRewardShaper(RewardShaper):
+    """
+    Reward shaping for MountainCar based on Temporal Difference (TD) error.
+    """
+    def __init__(self, model, device, gamma=0.99):
+        super().__init__()
+        self.model = model  # The neural network model used by PPO to estimate values
+        self.device = device
+        self.gamma = gamma
 
+    def td_error(self, reward, current_state, next_state):
+        current_state = torch.from_numpy(current_state).float().to(self.device)
+        current_value = self.model(current_state)
+        next_state = torch.from_numpy(next_state).float().to(self.device)
+        next_value = self.model(next_state)
 
+        return reward + self.gamma * next_value - current_value
+
+    def reshape(self, rewards, observations, next_observations):
+        reshaped_rewards = []
+        with torch.no_grad():
+            for t in range(len(rewards)):  
+                reward = rewards[t]
+                current_state = observations[t]
+                next_state = next_observations[t]
+                td = self.td_error(reward, current_state, next_state)
+                r = (reward + td).cpu().numpy().item()
+                reshaped_rewards.append(r)
+        return reshaped_rewards
 

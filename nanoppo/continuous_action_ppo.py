@@ -16,13 +16,12 @@ from pathlib import Path
 import click
 from copy import deepcopy
 from nanoppo.reward_scaler import RewardScaler
-from nanoppo.reward_shaper import MountainCarAdvancedRewardShaper, RewardShaper
+from nanoppo.reward_shaper import RewardShaper,MountainCarDirectionalRewardShaper, TDRewardShaper
 from nanoppo.rollout_buffer import RolloutBuffer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
 from nanoppo.network import PolicyNetwork, ValueNetwork
 from nanoppo.random_utils import set_seed
-import ray.tune as tune
 from time import time
 import warnings
 
@@ -168,8 +167,7 @@ def rollout_with_step(
         accumulated_rewards = 0
 
         while (not done) and (not truncated):
-            with torch.no_grad():
-                action, log_prob, action_mean, action_std = select_action(
+            action, log_prob, action_mean, action_std = select_action(
                     policy,
                     scaled_state,
                     device,
@@ -199,7 +197,7 @@ def rollout_with_step(
             if reward_shaper is None:
                 reshaped_reward = reward
             else:
-                reshaped_reward = reward_shaper().reshape([reward], [state])    
+                reshaped_reward = reward_shaper.reshape([reward], [state], [next_state])    
             # Scale rewards
             if reward_scaler is None:
                 scaled_reward = reshaped_reward
@@ -469,7 +467,7 @@ def train_networks(
 def train(
     env_name:str,
     env_config:dict,
-    reward_shaper:RewardShaper,
+    shape_reward:RewardShaper,
     rescaling_rewards: bool,
     scale_states: str,
     epochs:int,
@@ -493,7 +491,7 @@ def train(
     checkpoint_path:str=None,
     resume_training:bool=False,
     resume_epoch:bool=None,
-    tune_report:bool=False,
+    report_func:callable=None,
     project:str="continuous-action-ppo",
     seed:int=None
 ):
@@ -506,7 +504,7 @@ def train(
             "checkpoint_path",
             "resume_training",
             "resume_epoch",
-            "tune_report",
+            "report_func",
         ]
         [config.pop(key, None) for key in keys_to_delete]
         wandb.init(project=project, name=env_name, config=config)
@@ -541,6 +539,13 @@ def train(
         )
     else:
         last_epoch = 0
+    
+    if shape_reward is None:
+        reward_shaper = None
+    elif shape_reward == TDRewardShaper:
+        reward_shaper = TDRewardShaper(model=value, device=device)
+    else:
+        reward_shaper = shape_reward()
 
     # Set up rollout generator
     rollout = rollout_with_step(
@@ -605,8 +610,8 @@ def train(
                 log_rewards(episode_rewards[-20:])
             if metrics_recorder:
                 metrics_recorder.record_rewards(episode_rewards[-20:])
-            if tune_report:
-                tune.report(mean_reward=average_reward)  # Reporting the reward to Tune
+            if report_func:
+                report_func(mean_reward=average_reward)  # Reporting the reward 
         
         if verbose > 0:
             print(
@@ -645,7 +650,7 @@ config = {
     "seed": None,
     "epochs": 30,
     "rescaling_rewards": True,
-    "reward_shaper": None, # [None, SubClass of RewardReshaper]
+    "shape_reward": None, # [None, SubClass of RewardReshaper]
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
     "use_gae": False,
@@ -703,15 +708,15 @@ if __name__ == "__main__":
 
     if env_name == "MountainCarContinuous-v0":
         best_config = {} #{'env_name': 'MountainCarContinuous-v0', 'policy_lr': 1.3854471971413998e-06, 'value_lr': 4.324566907389423e-05, 'weight_decay': 4.628061893014567e-05, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 64, 'clip_param': 0.2190924577076417, 'max_grad_norm': 0.5806241298866155, 'vf_coef': 0.8005184316885099, 'entropy_coef': 6.504618115019088e-06, 'tau': 0.9020595524919125} 
-        best_config = {'env_name': 'MountainCarContinuous-v0', 'epochs':100, 'rescaling_rewards':False, 'reward_shaper':MountainCarAdvancedRewardShaper, 'policy_lr': 2.2139290514335154e-06, 'value_lr': 6.717375374452914e-05, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
+        best_config = {'env_name': 'MountainCarContinuous-v0', 'epochs':30, 'rescaling_rewards':False, 'shape_reward':TDRewardShaper, 'policy_lr': 2.2139290514335154e-04, 'value_lr': 6.717375374452914e-04, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
     elif env_name == "Pendulum-v1":
         #best_config = {'epochs':100}
-        best_config = {'epochs':5000, 'env_name': 'Pendulum-v1', 'policy_lr': 5.8281040558151076e-05, 'value_lr': 0.0001120576307122378, 'weight_decay': 0.0008145726123243288, 'sgd_iters': 2, 'rollout_buffer_size': 512, 'use_gae': False, 'init_type': 'he', 'batch_size': 512, 'clip_param': 0.21698505583910346, 'max_grad_norm': 0.5552556781050277, 'vf_coef': 1.90491891614271956, 'entropy_coef': 3.015475350516561e-05, 'tau': 0.9552356381259465}
+        best_config = {'epochs':30, 'env_name': 'Pendulum-v1', 'policy_lr': 5.8281040558151076e-05, 'value_lr': 0.0001120576307122378, 'weight_decay': 0.0008145726123243288, 'sgd_iters': 2, 'rollout_buffer_size': 512, 'use_gae': False, 'init_type': 'he', 'batch_size': 512, 'clip_param': 0.21698505583910346, 'max_grad_norm': 0.5552556781050277, 'vf_coef': 1.90491891614271956, 'entropy_coef': 3.015475350516561e-05, 'tau': 0.9552356381259465}
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
     print("train config", train_config)
     set_seed(train_config.pop("seed", None))
     policy, value, average_reward, total_iters = train(
-        **train_config, tune_report=False
+        **train_config
     )
     print("train", "average reward", average_reward, "total iters", total_iters)
