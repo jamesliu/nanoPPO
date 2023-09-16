@@ -5,24 +5,23 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
 import torch.optim as optim
 import gym
-from scipy import stats
 import numpy as np
 import wandb
 from tqdm import tqdm
 import random
 import os
 import glob
-from typing import Tuple
-from collections import deque, defaultdict
 from pathlib import Path
 
 import click
-import json
 from copy import deepcopy
 from nanoppo.reward_scaler import RewardScaler
+from nanoppo.reward_shaper import MountainCarAdvancedRewardShaper, RewardShaper
 from nanoppo.rollout_buffer import RolloutBuffer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
+from nanoppo.network import PolicyNetwork, ValueNetwork
+from nanoppo.random_utils import set_seed
 import ray.tune as tune
 from time import time
 import warnings
@@ -33,75 +32,8 @@ warnings.filterwarnings(
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # If using other libraries/frameworks, set the seed for those as well
-
-
-SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
-set_seed(SEED)
-
-# Define the weight initialization function
-def init_weights(m, init_type="he"):
-    if isinstance(m, nn.Linear):
-        if init_type == "he":
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-        elif init_type == "xavier":
-            nn.init.xavier_normal_(m.weight)
-        else:
-            raise ValueError(f"Initialization type {init_type} not recognized.")
-        nn.init.zeros_(m.bias)
-
-class PolicyNetwork(nn.Module):
-    def __init__(
-        self, state_size, action_size, init_type, min_log_std=-10, max_log_std=0.5
-    ):
-        super(PolicyNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_size, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, action_size)
-        #self.log_std = nn.Parameter(torch.zeros(action_size))
-        self.log_std = nn.Parameter(torch.full((action_size,), -0.511))
-        self.min_log_std = min_log_std
-        self.max_log_std = max_log_std
-
-        # Apply the initialization
-        self.apply(lambda m: init_weights(m, init_type=init_type))
-
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        mean = torch.tanh(self.fc3(x))
-
-        # Clamp log_std to ensure it's within a specific range
-        clamped_log_std = self.log_std.clamp(self.min_log_std, self.max_log_std)
-
-        # Compute std using the exponential of log_std
-        std = torch.exp(clamped_log_std)
-        dist = torch.distributions.normal.Normal(mean, std)
-        return dist
-
-
-class ValueNetwork(nn.Module):
-    def __init__(self, state_size, hidden_size, init_type):
-        super(ValueNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, 1)
-
-        # Apply the initialization
-        self.apply(lambda m: init_weights(m, init_type=init_type))
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+#SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
+#set_seed(SEED)
 
 def save_checkpoint(policy, value, optimizer, epoch, checkpoint_path):
     # Create checkpoint directory if it does not exist
@@ -114,7 +46,6 @@ def save_checkpoint(policy, value, optimizer, epoch, checkpoint_path):
         "optimizer_state_dict": optimizer.state_dict(),
     }
     torch.save(checkpoint, f"{checkpoint_path}/checkpoint_epoch{epoch}.pt")
-
 
 def load_checkpoint(policy, value, optimizer, checkpoint_path, epoch=None):
     # Find the latest checkpoint file
@@ -217,6 +148,7 @@ def rollout_with_step(
     device,
     rollout_buffer: RolloutBuffer,
     state_scaler: StateScaler,
+    reward_shaper: RewardShaper,
     reward_scaler: RewardScaler,
     wandb_log:bool,
     debug: bool
@@ -263,12 +195,17 @@ def rollout_with_step(
 
             scaled_state = scaled_next_state
             accumulated_rewards += reward
+            # Reshape rewards
+            if reward_shaper is None:
+                reshaped_reward = reward
+            else:
+                reshaped_reward = reward_shaper().reshape([reward], [state])    
             # Scale rewards
             if reward_scaler is None:
-                scaled_reward = reward
+                scaled_reward = reshaped_reward
                 #click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
             else:
-                scaled_reward = reward_scaler.scale_rewards([reward])[0]
+                scaled_reward = reward_scaler.scale_rewards([reshaped_reward])[0]
             rollout_buffer.push(
                 scaled_state, action.squeeze(), log_prob, scaled_reward, scaled_next_state, done
             )
@@ -277,7 +214,7 @@ def rollout_with_step(
             if done or truncated:
                 total_rewards = accumulated_rewards
                 if debug:
-                     print('total steps', total_steps, 'steps', steps, 'accumulated_rewards', accumulated_rewards,  'done', done, 'truncated', truncated, 'reward', reward, 'scaled_reward', scaled_reward)
+                     print('total steps', total_steps, 'steps', steps, 'accumulated_rewards', accumulated_rewards,  'done', done, 'truncated', truncated, 'reward', reward, 'reshaped_reward', reshaped_reward, 'scaled_reward', scaled_reward)
                 yield total_rewards, steps, total_steps
             else:
                 yield None, steps, total_steps
@@ -532,6 +469,7 @@ def train_networks(
 def train(
     env_name:str,
     env_config:dict,
+    reward_shaper:RewardShaper,
     rescaling_rewards: bool,
     scale_states: str,
     epochs:int,
@@ -556,7 +494,8 @@ def train(
     resume_training:bool=False,
     resume_epoch:bool=None,
     tune_report:bool=False,
-    project="continuous-action-ppo",
+    project:str="continuous-action-ppo",
+    seed:int=None
 ):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Initialize WandB
@@ -580,9 +519,10 @@ def train(
         optimizer_config,
         hidden_size=hidden_size,
         init_type=init_type,
-        device=device,
+        device=device
     )
     rollout_buffer = RolloutBuffer(rollout_buffer_size)
+
     if rescaling_rewards:
         reward_scaler = RewardScaler()
     else:
@@ -610,6 +550,7 @@ def train(
                 device,
                 rollout_buffer,
                 state_scaler,
+                reward_shaper,
                 reward_scaler,
                 wandb_log,
                 debug = True if verbose > 1 else False
@@ -701,8 +642,10 @@ def train(
 config = {
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
+    "seed": None,
     "epochs": 30,
     "rescaling_rewards": True,
+    "reward_shaper": None, # [None, SubClass of RewardReshaper]
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
     "use_gae": False,
@@ -755,18 +698,19 @@ def update_config(aconfig):
     return c
 
 if __name__ == "__main__":
-    #env_name = "MountainCarContinuous-v0"
-    env_name = 'Pendulum-v1'
+    env_name = "MountainCarContinuous-v0"
+    #env_name = 'Pendulum-v1'
 
     if env_name == "MountainCarContinuous-v0":
         best_config = {} #{'env_name': 'MountainCarContinuous-v0', 'policy_lr': 1.3854471971413998e-06, 'value_lr': 4.324566907389423e-05, 'weight_decay': 4.628061893014567e-05, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 64, 'clip_param': 0.2190924577076417, 'max_grad_norm': 0.5806241298866155, 'vf_coef': 0.8005184316885099, 'entropy_coef': 6.504618115019088e-06, 'tau': 0.9020595524919125} 
-        best_config = {'env_name': 'MountainCarContinuous-v0', 'policy_lr': 2.2139290514335154e-06, 'value_lr': 6.717375374452914e-05, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 20, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
+        best_config = {'env_name': 'MountainCarContinuous-v0', 'epochs':100, 'rescaling_rewards':False, 'reward_shaper':MountainCarAdvancedRewardShaper, 'policy_lr': 2.2139290514335154e-06, 'value_lr': 6.717375374452914e-05, 'weight_decay': 2.5128866121352096e-06, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 128, 'clip_param': 0.2622072783993743, 'max_grad_norm': 0.537370676793494, 'vf_coef': 0.5225264301194332, 'entropy_coef': 6.861142534298038e-05, 'tau': 0.9582092793934365}
     elif env_name == "Pendulum-v1":
         #best_config = {'epochs':100}
         best_config = {'epochs':5000, 'env_name': 'Pendulum-v1', 'policy_lr': 5.8281040558151076e-05, 'value_lr': 0.0001120576307122378, 'weight_decay': 0.0008145726123243288, 'sgd_iters': 2, 'rollout_buffer_size': 512, 'use_gae': False, 'init_type': 'he', 'batch_size': 512, 'clip_param': 0.21698505583910346, 'max_grad_norm': 0.5552556781050277, 'vf_coef': 1.90491891614271956, 'entropy_coef': 3.015475350516561e-05, 'tau': 0.9552356381259465}
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
     print("train config", train_config)
+    set_seed(train_config.pop("seed", None))
     policy, value, average_reward, total_iters = train(
         **train_config, tune_report=False
     )
