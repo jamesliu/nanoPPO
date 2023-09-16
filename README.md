@@ -41,7 +41,7 @@ See the [examples](./examples) directory for more comprehensive usage examples.
 
 ## Documentation
 
-Full documentation is available [here](link-to-documentation).
+Full documentation is available [here](https://nanoppo.readthedocs.io/en/latest/).
 
 ## Contributing
 
