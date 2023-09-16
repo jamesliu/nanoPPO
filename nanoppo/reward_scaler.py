@@ -38,13 +38,19 @@ class RewardScaler:
         - rewards (list or array): Batch of rewards from recent episodes.
         """
         batch_mean = np.mean(rewards)
-        self.count += len(rewards)
+        batch_count = len(rewards)
+        new_count = self.count + batch_count
+
+        delta = batch_mean - self.running_mean
+        new_mean = self.running_mean + delta * batch_count / new_count
 
         for reward in rewards:
-            delta = reward - self.running_mean
-            self.running_mean += delta / self.count
+            delta = reward - new_mean
             delta2 = reward - self.running_mean
             self.running_sum_of_square_diffs += delta * delta2
+
+        self.running_mean = new_mean
+        self.count = new_count
 
     def scale_rewards(self, rewards):
         """
@@ -63,4 +69,8 @@ class RewardScaler:
             else 1.0
         )
         std = np.sqrt(variance)
+        print(f"Running mean: {self.running_mean}, std: {std}"
+              f", count: {self.count}")
+        print("rewards: ", rewards)
+        
         return [(reward - self.running_mean) / (std + 1e-8) for reward in rewards]
