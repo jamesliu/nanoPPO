@@ -4,8 +4,8 @@ from nanoppo.envs.point_mass2d import PointMass2DEnv
 from nanoppo.envs.point_mass1d import PointMass1DEnv
 
 # Setting up the environment and the agent
-#env = PointMass2DEnv()
-env = PointMass1DEnv()
+env = PointMass2DEnv()
+#env = PointMass1DEnv()
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 print('state_dim', state_dim)

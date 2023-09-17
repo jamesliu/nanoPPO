@@ -99,7 +99,7 @@ def setup_networks(
         action_dim = env.action_space.n
 
     policy = PolicyNetwork(
-        observation_space.shape[0], action_dim, init_type=init_type
+        observation_space.shape[0], action_dim, 64, init_type=init_type
     ).to(device)
     value = ValueNetwork(
         observation_space.shape[0], hidden_size=hidden_size, init_type=init_type
@@ -496,8 +496,9 @@ def train_networks(
                 }
             )
             # wandb.log({"Gradients/ValueNet": wandb.Histogram(value.fc1.weight.grad.detach().cpu().numpy())})
-            log_std_value = policy.log_std.detach().cpu().numpy()
-            wandb.log({"Policy/Log_Std": log_std_value})
+            log_std_values = policy.action_log_std(batch_states).detach().cpu().numpy()
+            average_log_std = log_std_values.mean()
+            wandb.log({"Policy/Log_Std": average_log_std})
         # log the learning rate to wandb
         lrs = {}
         for i, param_group in enumerate(optimizer.param_groups):
@@ -818,6 +819,7 @@ def train_env(env_name):
     elif env_name == "PointMass2D-v0":
         best_config = {
             "env_name": "PointMass2D-v0",
+            "use_gae": True
         }
 
     best_config["env_name"] = env_name
