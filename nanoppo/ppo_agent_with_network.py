@@ -4,21 +4,31 @@ import torch.optim as optim
 import numpy as np
 
 # Neural Network for Actor-Critic
+import torch.nn as nn
+import torch.nn.functional as F
+
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var):
         super(ActorCritic, self).__init__()
 
-        # actor
-        self.action_layer = nn.Sequential(
+        # Actor: outputs mean and log standard deviation
+        self.action_mu = nn.Sequential(
             nn.Linear(state_dim, n_latent_var),
             nn.Tanh(),
             nn.Linear(n_latent_var, n_latent_var),
             nn.Tanh(),
-            nn.Linear(n_latent_var, action_dim),
-            nn.Softmax(dim=-1)
+            nn.Linear(n_latent_var, action_dim)
         )
 
-        # critic
+        self.action_log_std = nn.Sequential(
+            nn.Linear(state_dim, n_latent_var),
+            nn.Tanh(),
+            nn.Linear(n_latent_var, n_latent_var),
+            nn.Tanh(),
+            nn.Linear(n_latent_var, action_dim)
+        )
+
+        # Critic
         self.value_layer = nn.Sequential(
             nn.Linear(state_dim, n_latent_var),
             nn.Tanh(),
@@ -31,21 +41,29 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
 
     def act(self, state, action=None, compute_logprobs=True):
-        action_probs = self.action_layer(state)
-        dist = torch.distributions.Categorical(action_probs)
+        mu = self.action_mu(state)
+        log_std = self.action_log_std(state)
+        std = log_std.exp()
+
+        dist = torch.distributions.Normal(mu, std)
         if action is None:
             action = dist.sample()
+
         if compute_logprobs:
-            logprobs = dist.log_prob(action)
+            logprobs = dist.log_prob(action).sum(axis=-1)
             return action, logprobs
+        
         return action
 
     def evaluate(self, state, action):
-        action_probs = self.action_layer(state)
-        action_logprobs = torch.log(action_probs)
-        dist = torch.distributions.Categorical(action_probs)
-        logprobs = dist.log_prob(action)
+        mu = self.action_mu(state)
+        log_std = self.action_log_std(state)
+        std = log_std.exp()
+        
+        dist = torch.distributions.Normal(mu, std)
+        logprobs = dist.log_prob(action).sum(axis=-1)
         state_value = self.value_layer(state)
+        
         return logprobs, torch.squeeze(state_value)
 
     def get_value(self, state):
