@@ -10,28 +10,41 @@ def compute_gae(next_value, rewards, masks, values, gamma, tau):
         returns.insert(0, gae + values[step])
     return returns
 
-def compute_returns_and_advantages_without_gae(
-    batch_rewards, batch_states, batch_next_states, batch_dones, value, gamma
-):
+def compute_returns_and_advantages_without_gae(rewards, states, next_states, dones, value, gamma=0.99):
+    """
+    Compute returns and advantages without using Generalized Advantage Estimation (GAE).
+    
+    Parameters:
+    - rewards: list of rewards for each timestep
+    - states: list of states for each timestep
+    - next_states: list of next states for each timestep
+    - dones: list of done flags for each timestep
+    - value: function to compute the value of a state
+    - gamma: discount factor
+
+    Returns:
+    - returns: list of computed returns for each timestep
+    - advs: list of computed advantages for each timestep
+    """
     returns = []
     advs = []
-    g = 0  # Initialize bootstrapped return
 
+    g = 0
     with torch.no_grad():
         for r, state, next_state, done in zip(
-            reversed(batch_rewards),
-            reversed(batch_states),
-            reversed(batch_next_states),
-            reversed(batch_dones),
+            reversed(rewards),
+            reversed(states),
+            reversed(next_states),
+            reversed(dones),
         ):
             mask = 1 - done.item()
             next_value = value(next_state).item()
             next_value = next_value * mask
-            value_curr_state = value(state).item()
-            delta = r + gamma * next_value - value_curr_state
-            advs.insert(0, delta)
-            
-            g = r + gamma * next_value * mask
+            g = r + gamma * next_value
             returns.insert(0, g)
+            
+            value_curr_state = value(state).item()
+            delta = g - value_curr_state
+            advs.insert(0, delta)
 
     return returns, advs

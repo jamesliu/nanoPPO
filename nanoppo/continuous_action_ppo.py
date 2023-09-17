@@ -337,6 +337,7 @@ def train_networks(
     l1_loss,
     wandb_log,
     metrics_recorder: MetricsRecorder,
+    verbose
 ):
     assert (
         len(rollout_buffer) >= batch_size
@@ -452,7 +453,6 @@ def train_networks(
         value_param_magnitude = torch.norm(
             torch.cat([p.data.view(-1) for p in value.parameters()])
         ).item()
-    
 
 
         optimizer.step()
@@ -516,6 +516,9 @@ def train_networks(
             metrics_recorder.record_learning(lrs)
 
         iter_num += 1
+        
+        if verbose > 1:
+            print('iter', iter_num, 'sgd iter', sgd_iter, 'loss', total_loss.item(), 'policy loss', policy_loss.item(), 'entropy loss', entropy_loss.item(), 'value loss', value_loss.item(), 'policy grad norm', policy_grad_norm, 'value grad norm', value_grad_norm, 'policy lr', policy_lr, 'value lr', value_lr, 'policy param magnitude', policy_param_magnitude, 'value param magnitude', value_param_magnitude, 'policy gradient magnitude', policy_gradient_magnitude, 'value gradient magnitude', value_gradient_magnitude)
     return (
         policy,
         value,
@@ -658,6 +661,7 @@ def train(
             l1_loss=l1_loss,
             wandb_log=wandb_log,
             metrics_recorder=metrics_recorder,
+            verbose=verbose
         )
         if checkpoint_interval > 0 and ((epoch + 1) % checkpoint_interval) == 0:
             save_checkpoint(policy, value, optimizer, epoch, checkpoint_path)
@@ -824,7 +828,7 @@ def train_env(env_name):
     print("train", "average reward", average_reward, "total iters", total_iters)
 
 @click.command()
-@click.option("--env_name", default="PointMass1D-v0", type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "MountainCarContinuous-v0", "Pendulum-v1"]))
+@click.option("--env_name", default="PointMass2D-v0", type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "MountainCarContinuous-v0", "Pendulum-v1"]))
 def cli(env_name):
     train_env(env_name=env_name)
 
