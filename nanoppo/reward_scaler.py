@@ -69,8 +69,5 @@ class RewardScaler:
             else 1.0
         )
         std = np.sqrt(variance)
-        print(f"Running mean: {self.running_mean}, std: {std}"
-              f", count: {self.count}")
-        print("rewards: ", rewards)
         
         return [(reward - self.running_mean) / (std + 1e-8) for reward in rewards]
