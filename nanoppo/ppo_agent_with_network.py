@@ -7,6 +7,29 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
+class Normalizer:
+    def __init__(self, dim):
+        # Mean, standard deviation, and count for each dimension
+        self.n = np.zeros(dim)
+        self.mean = np.zeros(dim)
+        self.mean_diff = np.zeros(dim)
+        self.var = np.zeros(dim)
+
+    def observe(self, x):
+        """Update statistics"""
+        self.n += 1.0
+        last_mean = self.mean.copy()
+        self.mean += (x - self.mean) / self.n
+        self.mean_diff += (x - last_mean) * (x - self.mean)
+        self.var = (self.mean_diff / self.n).clip(min=1e-2)
+
+    def normalize(self, inputs):
+        """Normalize input using running mean and variance"""
+        obs_std = np.sqrt(self.var)
+        return (inputs - self.mean) / obs_std
+
+
+
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var):
         super(ActorCritic, self).__init__()

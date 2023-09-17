@@ -1,16 +1,16 @@
 import torch
-from nanoppo.ppo_agent_with_network import PPOAgent
+from nanoppo.ppo_agent_with_network import PPOAgent, Normalizer
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.envs.point_mass1d import PointMass1DEnv
 
 # Setting up the environment and the agent
+#env = PointMass2DEnv()
 env = PointMass2DEnv()
-#env = PointMass1DEnv()
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 print('state_dim', state_dim)
 print('action_dim', action_dim)
-n_latent_var = 64
+n_latent_var = 128
 lr = 0.0005
 betas = (0.9, 0.999)
 gamma = 0.99
@@ -65,19 +65,29 @@ class PPOMemory:
     def get(self):
         return torch.stack(self.states), torch.stack(self.actions), torch.stack(self.logprobs), torch.stack(self.next_states), torch.stack(self.rewards), torch.stack(self.is_terminals)
 
+# Initialize a normalizer with the dimensionality of the state
+state_normalizer = Normalizer(state_dim)
+
 ppo_memory = PPOMemory()
 
 # Training loop
 time_step = 0
 best_reward = float('-inf')
 avg_length = 0
+cumulative_reward = 0  # Initialize cumulative reward
 for episode in range(1, max_episodes + 1):
     state, info = env.reset()
+    state_normalizer.observe(state)
+    state = state_normalizer.normalize(state)
+
     total_reward = 0
     state = torch.FloatTensor(state)
     for t in range(max_timesteps):
         action, log_prob = ppo.policy.act(state)
         next_state, reward, done, truncated, _ = env.step(action.numpy())
+        state_normalizer.observe(next_state)
+        next_state = state_normalizer.normalize(next_state)
+
         total_reward += reward
         next_state = torch.FloatTensor(next_state)
         ppo_memory.append(state, action, log_prob, next_state, reward, done)
@@ -102,12 +112,15 @@ for episode in range(1, max_episodes + 1):
 
     avg_length += t + 1
 
+    cumulative_reward += total_reward  # Increment the cumulative reward by total reward of this episode
+
     # Logging
     if episode % log_interval == 0:
         avg_length = int(avg_length / log_interval)
-        avg_reward = int(total_reward / log_interval)
+        avg_reward = int(cumulative_reward / log_interval)
         print('Episode {} \t avg length: {} \t reward: {}'.format(episode, avg_length, avg_reward))
         avg_length = 0
+        cumulative_reward = 0  # Reset cumulative reward after logging
         total_reward = 0
         if avg_reward > best_reward:
             best_reward = avg_reward
