@@ -69,5 +69,5 @@ class RewardScaler:
             else 1.0
         )
         std = np.sqrt(variance)
-        
+
         return [(reward - self.running_mean) / (std + 1e-8) for reward in rewards]

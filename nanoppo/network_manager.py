@@ -4,6 +4,7 @@ import gym
 from nanoppo.network import PolicyNetwork, ValueNetwork
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR
 
+
 class NetworkManager:
     def __init__(self, env, optimizer_config, hidden_size, init_type, device):
         self.env = env
@@ -21,13 +22,19 @@ class NetworkManager:
             action_dim = self.env.action_space.shape[0]
         else:
             action_dim = self.env.action_space.n
-    
-        policy = PolicyNetwork(observation_space.shape[0], action_dim, init_type=self.init_type).to(self.device)
-        value = ValueNetwork(observation_space.shape[0], hidden_size=self.hidden_size, init_type=self.init_type).to(self.device)
-    
+
+        policy = PolicyNetwork(
+            observation_space.shape[0], action_dim, init_type=self.init_type
+        ).to(self.device)
+        value = ValueNetwork(
+            observation_space.shape[0],
+            hidden_size=self.hidden_size,
+            init_type=self.init_type,
+        ).to(self.device)
+
         policy_lr = self.optimizer_config["policy_lr"]
         value_lr = self.optimizer_config["value_lr"]
-    
+
         optimizer = optim.Adam(
             [
                 {"params": policy.parameters(), "lr": policy_lr},
@@ -37,14 +44,20 @@ class NetworkManager:
             eps=self.optimizer_config["epsilon"],
             weight_decay=self.optimizer_config["weight_decay"],
         )
-    
+
         if self.optimizer_config["scheduler"] is None:
             scheduler = None
         elif self.optimizer_config["scheduler"] == "exponential":
-            scheduler = ExponentialLR(optimizer, gamma=self.optimizer_config["exponential_gamma"])
+            scheduler = ExponentialLR(
+                optimizer, gamma=self.optimizer_config["exponential_gamma"]
+            )
         elif self.optimizer_config["scheduler"] == "cosine":
-            scheduler = CosineAnnealingLR(optimizer, T_max=self.optimizer_config["cosine_T_max"])
+            scheduler = CosineAnnealingLR(
+                optimizer, T_max=self.optimizer_config["cosine_T_max"]
+            )
         else:
-            raise ValueError(f"Scheduler {self.optimizer_config['scheduler']} not recognized.")
-        
+            raise ValueError(
+                f"Scheduler {self.optimizer_config['scheduler']} not recognized."
+            )
+
         return policy, value, optimizer, scheduler

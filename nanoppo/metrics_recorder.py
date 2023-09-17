@@ -1,6 +1,7 @@
 import pandas as pd
 from collections import defaultdict
 
+
 class MetricsRecorder:
     def __init__(self):
         self.losses = {

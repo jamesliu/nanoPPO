@@ -1,5 +1,6 @@
 import gym
 
+
 class EnvironmentManager:
     def __init__(self, env_name, env_config=None):
         self.env_name = env_name

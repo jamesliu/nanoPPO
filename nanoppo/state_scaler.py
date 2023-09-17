@@ -6,6 +6,7 @@ from sklearn.preprocessing import (
 )
 import numpy as np
 
+
 class StateScaler:
     def __init__(self, env, scale_type, sample_size=10000):
         self.env = env
@@ -15,8 +16,13 @@ class StateScaler:
             self.scaler = self._init_scaler(env, sample_size, scale_type)
 
     def _init_scaler(self, env, sample_size, scale_type):
-        samples = [env.observation_space.sample() for _ in range(sample_size)] 
-        state_space_samples = np.array([sample['obs'] if isinstance(sample, dict) else sample for sample in samples])
+        samples = [env.observation_space.sample() for _ in range(sample_size)]
+        state_space_samples = np.array(
+            [
+                sample["obs"] if isinstance(sample, dict) else sample
+                for sample in samples
+            ]
+        )
 
         if scale_type == "standard":
             scaler = StandardScaler()

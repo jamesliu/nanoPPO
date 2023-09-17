@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import time
 
+
 def set_seed(seed=None, use_torch=True):
     """
     Set the seed for all random number generators.
@@ -24,12 +25,14 @@ def set_seed(seed=None, use_torch=True):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+
 def get_seed():
     """
     Retrieve the current seed value for the Python random module.
     Note: This won't fetch seeds for numpy or torch.
     """
     return random.getstate()
+
 
 def sample_action(prob_distribution):
     """
@@ -42,6 +45,7 @@ def sample_action(prob_distribution):
     - The sampled action index.
     """
     return np.random.choice(len(prob_distribution), p=prob_distribution)
+
 
 def epsilon_greedy_action(values, epsilon=0.1):
     """

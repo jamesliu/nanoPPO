@@ -28,6 +28,7 @@ warnings.filterwarnings(
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
 
+
 class PPOAgent:
     def __init__(self, config, optimizer_config, force_cpu=False):
         self.config = config
@@ -40,8 +41,19 @@ class PPOAgent:
         self.env_manager = EnvironmentManager(self.env_name, config["env_config"])
         self.env = self.env_manager.setup_env()
 
-        self.network_manager = NetworkManager(self.env, optimizer_config, config["hidden_size"], config["init_type"], self.device)
-        self.policy, self.value, self.optimizer, self.scheduler = self.network_manager.setup_networks()
+        self.network_manager = NetworkManager(
+            self.env,
+            optimizer_config,
+            config["hidden_size"],
+            config["init_type"],
+            self.device,
+        )
+        (
+            self.policy,
+            self.value,
+            self.optimizer,
+            self.scheduler,
+        ) = self.network_manager.setup_networks()
 
         self.rollout_buffer = RolloutBuffer(self.config["rollout_buffer_size"])
         if self.config["rescaling_rewards"]:
@@ -52,8 +64,10 @@ class PPOAgent:
         if self.config["scale_states"] is None:
             self.state_scaler = None
         else:
-            self.state_scaler = StateScaler(self.env, sample_size=10000, scale_type=self.config["scale_states"])
-        
+            self.state_scaler = StateScaler(
+                self.env, sample_size=10000, scale_type=self.config["scale_states"]
+            )
+
         self.metrics_log = self.config["metrics_log"]
         if self.metrics_log:
             self.metrics_recorder = MetricsRecorder()
@@ -74,10 +88,12 @@ class PPOAgent:
             ]
             [config.pop(key, None) for key in keys_to_delete]
             WandBLogger.init(project=self.project, name=self.env_name, config=config)
-        self.checkpoint_path = os.path.join(self.config["checkpoint_dir"], self.project, self.env_name)
- 
+        self.checkpoint_path = os.path.join(
+            self.config["checkpoint_dir"], self.project, self.env_name
+        )
+
     @staticmethod
-    def get_epoch_iterator(last_epoch, epochs, verbose:int):
+    def get_epoch_iterator(last_epoch, epochs, verbose: int):
         if verbose > 0:
             progress_iterator = tqdm(range(last_epoch, last_epoch + epochs))
         else:
@@ -86,21 +102,23 @@ class PPOAgent:
 
     @staticmethod
     def load_checkpoint(self, checkpoint_path, epoch=None):
-        last_epoch = CheckpointManager.load_checkpoint(self.policy, self.value, self.optimizer, checkpoint_path, epoch)
+        last_epoch = CheckpointManager.load_checkpoint(
+            self.policy, self.value, self.optimizer, checkpoint_path, epoch
+        )
         return last_epoch
 
     @staticmethod
-    def select_action(policy:PolicyNetwork, state, device, action_min, action_max):
+    def select_action(policy: PolicyNetwork, state, device, action_min, action_max):
         state = torch.from_numpy(state).float().to(device)
         dist = policy(state)
         action = dist.sample()
         # If action space is continuous, compute the log_prob of the action, sum(-1) to sum over all dimensions
         log_prob = dist.log_prob(action).sum(-1)
-    
+
         # Extract mean and std of the action distribution
         action_mean = dist.mean
         action_std = dist.stddev
-    
+
         # action = torch.tanh(action)  # Pass the sampled action through the tanh activation function
         # action = action + torch.normal(mean=torch.zeros_like(action), std=action_std)  # Add noise to the action
         action = action.clamp(
@@ -112,7 +130,7 @@ class PPOAgent:
             action_mean.cpu().detach(),
             action_std.cpu().detach(),
         )
-    
+
     @staticmethod
     def rollout_with_step(
         policy,
@@ -123,10 +141,10 @@ class PPOAgent:
         state_scaler: StateScaler,
         reward_shaper: RewardShaper,
         reward_scaler: RewardScaler,
-        wandb_log:bool,
-        debug: bool
+        wandb_log: bool,
+        debug: bool,
     ):
-        total_steps =0
+        total_steps = 0
         while True:
             steps = 0
             state, info = env.reset()
@@ -139,68 +157,96 @@ class PPOAgent:
             done = False
             truncated = False
             accumulated_rewards = 0
-    
+
             while (not done) and (not truncated):
                 action, log_prob, action_mean, action_std = PPOAgent.select_action(
-                        policy,
-                        scaled_state,
-                        device,
-                        env.action_space.low[0],
-                        env.action_space.high[0],
-                    )
+                    policy,
+                    scaled_state,
+                    device,
+                    env.action_space.low[0],
+                    env.action_space.high[0],
+                )
                 if wandb_log:
-                    WandBLogger.log_action_distribution_parameters(action_mean, action_std)
-    
+                    WandBLogger.log_action_distribution_parameters(
+                        action_mean, action_std
+                    )
+
                 action = action.numpy()
                 log_prob = log_prob.numpy()
-    
+
                 next_state, reward, done, truncated, info = env.step(action)
-    
+
                 if isinstance(next_state, dict):
                     next_state = next_state["obs"]
                 if state_scaler is None:
                     scaled_next_state = next_state
                 else:
                     scaled_next_state = state_scaler.scale_state(next_state)
-    
+
                 scaled_state = scaled_next_state
                 accumulated_rewards += reward
                 # Reshape rewards
                 if reward_shaper is None:
                     reshaped_reward = reward
                 else:
-                    reshaped_reward = reward_shaper.reshape([reward], [state], [next_state])    
+                    reshaped_reward = reward_shaper.reshape(
+                        [reward], [state], [next_state]
+                    )
                 # Scale rewards
                 if reward_scaler is None:
                     scaled_reward = reshaped_reward
-                    #click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
+                    # click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
                 else:
                     scaled_reward = reward_scaler.scale_rewards([reshaped_reward])[0]
                 rollout_buffer.push(
-                    scaled_state, action.squeeze(), log_prob, scaled_reward, scaled_next_state, done
+                    scaled_state,
+                    action.squeeze(),
+                    log_prob,
+                    scaled_reward,
+                    scaled_next_state,
+                    done,
                 )
                 total_steps += 1
                 steps += 1
                 if done or truncated:
                     total_rewards = accumulated_rewards
                     if debug:
-                         print('total steps', total_steps, 'steps', steps, 'accumulated_rewards', accumulated_rewards,  'done', done, 'truncated', truncated, 'reward', reward, 'reshaped_reward', reshaped_reward, 'scaled_reward', scaled_reward)
+                        print(
+                            "total steps",
+                            total_steps,
+                            "steps",
+                            steps,
+                            "accumulated_rewards",
+                            accumulated_rewards,
+                            "done",
+                            done,
+                            "truncated",
+                            truncated,
+                            "reward",
+                            reward,
+                            "reshaped_reward",
+                            reshaped_reward,
+                            "scaled_reward",
+                            scaled_reward,
+                        )
                     yield total_rewards, steps, total_steps
                 else:
                     yield None, steps, total_steps
-    
+
     @staticmethod
     def compute_gae(next_value, rewards, masks, values, gamma, tau):
         values = values + [next_value]
         gae = 0
         returns = []
         for step in reversed(range(len(rewards))):
-            delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
+            delta = (
+                rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
+            )
             gae = delta + gamma * tau * masks[step] * gae
             returns.insert(0, gae + values[step])
         return returns
-    
-    @staticmethod 
+
+    @staticmethod
     def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef):
         # Policy loss
         dist = policy(states)
@@ -215,17 +261,19 @@ class PPOAgent:
             -torch.min(surr1, surr2).mean(),
             -entropy_coef * entropy,
         )  # Add the entropy term to the policy loss
-    
+
     @staticmethod
     def compute_value_loss(value, states, returns, l1_loss):
         # Compute value loss
         v_pred = value(states).squeeze()
         v_target = returns.squeeze()
         value_loss = (
-            F.smooth_l1_loss(v_pred, v_target) if l1_loss else F.mse_loss(v_pred, v_target)
+            F.smooth_l1_loss(v_pred, v_target)
+            if l1_loss
+            else F.mse_loss(v_pred, v_target)
         )
         return value_loss
-    
+
     @staticmethod
     def train_network(
         iter_num,
@@ -248,7 +296,9 @@ class PPOAgent:
         wandb_log,
         metrics_recorder: MetricsRecorder,
     ):
-        assert len(rollout_buffer) >= batch_size, f"Rollout buffer length {len(rollout_buffer)} is less than batch size {batch_size}"
+        assert (
+            len(rollout_buffer) >= batch_size
+        ), f"Rollout buffer length {len(rollout_buffer)} is less than batch size {batch_size}"
         for sgd_iter in range(sgd_iters):
             # Sample from the rollout buffer
             (
@@ -259,7 +309,7 @@ class PPOAgent:
                 batch_next_states,
                 batch_dones,
             ) = rollout_buffer.sample(batch_size, device=device)
-    
+
             # Compute Advantage and Returns
             returns = []
             advs = []
@@ -290,17 +340,17 @@ class PPOAgent:
                         delta = r + gamma * next_value - value_curr_state
                         advs.insert(0, delta)
                         g = r + gamma * next_value * mask
-    
+
             returns = torch.tensor(returns, dtype=torch.float32).to(device)
             advs = torch.tensor(advs, dtype=torch.float32).to(device)
             advs = (advs - advs.mean()) / (advs.std() + 1e-10)
-    
+
             # Create mini-batches
             num_samples = len(batch_rewards)
             assert num_samples == batch_size
             num_batches = num_samples // batch_size
             assert num_batches == 1
-    
+
             optimizer.zero_grad()
             policy_loss, entropy_loss = PPOAgent.surrogate(
                 policy,
@@ -326,9 +376,11 @@ class PPOAgent:
             for module in value.modules():
                 hooks.append(module.register_forward_hook(hook))
             """
-    
-            value_loss = PPOAgent.compute_value_loss(value, batch_states, returns, l1_loss)
-    
+
+            value_loss = PPOAgent.compute_value_loss(
+                value, batch_states, returns, l1_loss
+            )
+
             # Dynamically adjust vf_coef based on observed training dynamics
             loss_ratio = policy_loss.item() / (
                 value_loss.item() + 1e-10
@@ -341,16 +393,20 @@ class PPOAgent:
                 vf_coef *= 0.9
             # Limit vf_coef to a reasonable range to prevent it from becoming too large or too small
             vf_coef = min(max(vf_coef, 0.1), 10)
-    
+
             # Compute total loss and update parameters
             total_loss = policy_loss + entropy_loss + vf_coef * value_loss
-    
+
             total_loss.backward()
-    
+
             # Clip the gradients to avoid exploding gradients
-            policy_grad_norm = nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
-            value_grad_norm = nn.utils.clip_grad_norm_(value.parameters(), max_grad_norm)
-    
+            policy_grad_norm = nn.utils.clip_grad_norm_(
+                policy.parameters(), max_grad_norm
+            )
+            value_grad_norm = nn.utils.clip_grad_norm_(
+                value.parameters(), max_grad_norm
+            )
+
             # compute activation norm
             # remove the forward hooks
             """
@@ -359,11 +415,11 @@ class PPOAgent:
             # compute the mean activation norm for the value network
             activation_norm = sum(activation_norms) / len(activation_norms)
             """
-    
+
             optimizer.step()
             if scheduler is not None:
                 scheduler.step()
-    
+
             if wandb_log:
                 # Log the losses and gradients to WandB
                 WandBLogger.log(
@@ -394,7 +450,7 @@ class PPOAgent:
                 lrs["learning_rate_{}".format(i)] = lr
                 if wandb_log:
                     WandBLogger.log({"LR/LearningRate_{}".format(i): lr})
-    
+
             if metrics_recorder:
                 metrics_recorder.record_losses(
                     total_loss.item(),
@@ -403,7 +459,7 @@ class PPOAgent:
                     value_loss.item(),
                 )
                 metrics_recorder.record_learning(lrs)
-    
+
             iter_num += 1
         return (
             policy,
@@ -413,63 +469,72 @@ class PPOAgent:
 
     @staticmethod
     def train_with_epoch(
-        env:gym.Env,
-        env_name:str,
-        env_config:dict,
-        rollout_buffer:RolloutBuffer,
-        state_scaler:StateScaler,
-        shape_reward:RewardShaper,
-        reward_scaler:RewardScaler,
-        policy:PolicyNetwork,
-        value:ValueNetwork,
-        optimizer:optim.Optimizer,
-        scheduler:optim.lr_scheduler._LRScheduler,
-        epochs:int,
-        batch_size:int,
-        sgd_iters:int,
-        gamma:float,
-        #optimizer_config:dict,
-        #hidden_size:int,
-        #init_type:str,
-        clip_param:float,
-        vf_coef:float,
-        entropy_coef:float,
-        max_grad_norm:float,
-        use_gae:bool,
-        tau:float,
-        l1_loss:bool,
-        verbose:int,
-        rollout_buffer_size:int,
-        checkpoint_interval:int=-1,
-        checkpoint_path:str=None,
-        resume_training:bool=False,
-        resume_epoch:bool=None,
-        report_func:callable=None,
-        #project:str="continuous-action-ppo",
-        device:str='cpu',
-        wandb_log:bool=True,
-        metrics_recorder:MetricsRecorder=None,
-        #seed:int=None,
-        ** kwargs,
+        env: gym.Env,
+        env_name: str,
+        env_config: dict,
+        rollout_buffer: RolloutBuffer,
+        state_scaler: StateScaler,
+        shape_reward: RewardShaper,
+        reward_scaler: RewardScaler,
+        policy: PolicyNetwork,
+        value: ValueNetwork,
+        optimizer: optim.Optimizer,
+        scheduler: optim.lr_scheduler._LRScheduler,
+        epochs: int,
+        batch_size: int,
+        sgd_iters: int,
+        gamma: float,
+        # optimizer_config:dict,
+        # hidden_size:int,
+        # init_type:str,
+        clip_param: float,
+        vf_coef: float,
+        entropy_coef: float,
+        max_grad_norm: float,
+        use_gae: bool,
+        tau: float,
+        l1_loss: bool,
+        verbose: int,
+        rollout_buffer_size: int,
+        checkpoint_interval: int = -1,
+        checkpoint_path: str = None,
+        resume_training: bool = False,
+        resume_epoch: bool = None,
+        report_func: callable = None,
+        # project:str="continuous-action-ppo",
+        device: str = "cpu",
+        wandb_log: bool = True,
+        metrics_recorder: MetricsRecorder = None,
+        # seed:int=None,
+        **kwargs,
     ):
-        
         if resume_training:
-            last_epoch = CheckpointManager.load_checkpoint(policy, value, optimizer, checkpoint_path, epoch)
+            last_epoch = CheckpointManager.load_checkpoint(
+                policy, value, optimizer, checkpoint_path, epoch
+            )
         else:
             last_epoch = 0
-        
+
         if shape_reward is None:
             reward_shaper = None
         elif shape_reward == TDRewardShaper:
             reward_shaper = TDRewardShaper(model=value, device=device)
         else:
             reward_shaper = shape_reward()
-    
+
         # Set up rollout generator
         rollout = PPOAgent.rollout_with_step(
-            policy=policy,value=value,env=env,device=device, rollout_buffer=rollout_buffer,
-            state_scaler=state_scaler,reward_shaper=reward_shaper, reward_scaler=reward_scaler,
-            wandb_log=wandb_log, debug = True if verbose > 1 else False)
+            policy=policy,
+            value=value,
+            env=env,
+            device=device,
+            rollout_buffer=rollout_buffer,
+            state_scaler=state_scaler,
+            reward_shaper=reward_shaper,
+            reward_scaler=reward_scaler,
+            wandb_log=wandb_log,
+            debug=True if verbose > 1 else False,
+        )
         # Set up training loop
         episode_rewards = []
         episode_steps = []
@@ -511,18 +576,20 @@ class PPOAgent:
                 metrics_recorder=metrics_recorder,
             )
             if checkpoint_interval > 0 and ((epoch + 1) % checkpoint_interval) == 0:
-                CheckpointManager.save_checkpoint(self.policy, self.value, self.optimizer, epoch, checkpoint_path)
-    
+                CheckpointManager.save_checkpoint(
+                    self.policy, self.value, self.optimizer, epoch, checkpoint_path
+                )
+
             # Average of last 10 episodes or all episodes if less than 10 episodes are available
             average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
             if len(episode_rewards) >= 20:
                 if wandb_log:
-                    WandBLogger.log_rewards(episode_rewards[-20:]) 
+                    WandBLogger.log_rewards(episode_rewards[-20:])
                 if metrics_recorder:
                     self.metrics_recorder.record_rewards(episode_rewards[-20:])
                 if report_func:
-                    report_func(mean_reward=average_reward)  # Reporting the reward 
-            
+                    report_func(mean_reward=average_reward)  # Reporting the reward
+
             if verbose > 0:
                 print(
                     "epoch",
@@ -539,9 +606,9 @@ class PPOAgent:
                     rollout_steps,
                 )
         end = time()
-        print('Training time: ', round((end - start)/60, 2), 'minutes')
-    
-        metrics_recorder.to_csv()
+        print("Training time: ", round((end - start) / 60, 2), "minutes")
+        if metrics_recorder:
+            metrics_recorder.to_csv()
         if wandb_log:
             WandBLogger.finish()
         print(
@@ -552,7 +619,7 @@ class PPOAgent:
             total_iters,
         )
         return policy, value, average_reward, train_iters
-    
+
     def train(self, epochs):
         PPOAgent.train_with_epoch(
             env=self.env,
@@ -570,9 +637,9 @@ class PPOAgent:
             batch_size=self.config["batch_size"],
             sgd_iters=self.config["sgd_iters"],
             gamma=self.config["gamma"],
-            #optimizer_config=self.optimizer_config,
-            #hidden_size=self.config["hidden_size"],
-            #init_type=self.config["init_type"],
+            # optimizer_config=self.optimizer_config,
+            # hidden_size=self.config["hidden_size"],
+            # init_type=self.config["init_type"],
             clip_param=self.config["clip_param"],
             vf_coef=self.config["vf_coef"],
             entropy_coef=self.config["entropy_coef"],
@@ -587,10 +654,9 @@ class PPOAgent:
             resume_training=self.config["resume_training"],
             resume_epoch=self.config["resume_epoch"],
             report_func=self.config["report_func"],
-            #project=self.config["project"],
+            # project=self.config["project"],
             device=self.device,
             wandb_log=self.config["wandb_log"],
             metrics_recorder=self.metrics_recorder,
-            #seed=self.config["seed"],
+            # seed=self.config["seed"],
         )
-    

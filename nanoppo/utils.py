@@ -1,6 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 
+
 def update_config(config, optimizer_config, aconfig):
     o = deepcopy(optimizer_config)
     c = deepcopy(config)
@@ -14,9 +15,7 @@ def update_config(config, optimizer_config, aconfig):
     c.update(
         {
             "optimizer_config": o,
-            "checkpoint_path": str(
-                Path("checkpoints") / c["project"] / c["env_name"]
-            ),
+            "checkpoint_path": str(Path("checkpoints") / c["project"] / c["env_name"]),
         }
     )
     return c

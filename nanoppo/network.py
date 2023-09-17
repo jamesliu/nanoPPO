@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 # Define the weight initialization function
 def init_weights(m, init_type="he"):
     if isinstance(m, nn.Linear):
@@ -13,6 +14,7 @@ def init_weights(m, init_type="he"):
             raise ValueError(f"Initialization type {init_type} not recognized.")
         nn.init.zeros_(m.bias)
 
+
 class PolicyNetwork(nn.Module):
     def __init__(
         self, state_size, action_size, init_type, min_log_std=-10, max_log_std=0.5
@@ -21,7 +23,7 @@ class PolicyNetwork(nn.Module):
         self.fc1 = nn.Linear(state_size, 64)
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, action_size)
-        #self.log_std = nn.Parameter(torch.zeros(action_size))
+        # self.log_std = nn.Parameter(torch.zeros(action_size))
         self.log_std = nn.Parameter(torch.full((action_size,), -0.511))
         self.min_log_std = min_log_std
         self.max_log_std = max_log_std
@@ -41,6 +43,7 @@ class PolicyNetwork(nn.Module):
         std = torch.exp(clamped_log_std)
         dist = torch.distributions.normal.Normal(mean, std)
         return dist
+
 
 class ValueNetwork(nn.Module):
     def __init__(self, state_size, hidden_size, init_type):

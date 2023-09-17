@@ -3,6 +3,7 @@ from collections import deque
 import torch
 import numpy as np
 
+
 class RolloutBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -28,4 +29,3 @@ class RolloutBuffer:
 
     def clear(self):
         self.buffer.clear()
-

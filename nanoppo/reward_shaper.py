@@ -3,13 +3,14 @@ class RewardShaper:
     Base class for reward shaping. It provides a structure and can be subclassed
     for specific environments.
     """
+
     def __init__(self):
         pass
 
     def reshape(self, rewards, observations, next_observations=None):
         """
         This method should be overridden by subclasses to provide specific reward shaping logic.
-        
+
         Parameters:
         - rewards (list or array): Original rewards from the environment.
         - observations (list or array): Corresponding observations for the rewards.
@@ -20,10 +21,12 @@ class RewardShaper:
         # By default, just return the original rewards.
         return rewards
 
+
 class MountainCarRewardShaper(RewardShaper):
     """
     Reward shaping specifically designed for the MountainCar environment.
     """
+
     def __init__(self, position_weight=1.0, velocity_weight=1.0):
         """
         Initialize the reward shaper with given weights.
@@ -58,17 +61,22 @@ class MountainCarRewardShaper(RewardShaper):
         # Combine the original rewards with the shaped rewards.
         reshaped_rewards = [
             orig_reward + pos_reward + vel_reward
-            for orig_reward, pos_reward, vel_reward in zip(rewards, position_rewards, velocity_rewards)
+            for orig_reward, pos_reward, vel_reward in zip(
+                rewards, position_rewards, velocity_rewards
+            )
         ]
 
         return reshaped_rewards
 
+
 import numpy as np
+
 
 class MountainCarHeightRewardShaper(RewardShaper):
     """
     Reward shaping specifically designed for the MountainCar environment based on the car's height.
     """
+
     def __init__(self, height_weight=1.0):
         """
         Initialize the reward shaper with given weight.
@@ -82,7 +90,7 @@ class MountainCarHeightRewardShaper(RewardShaper):
     def height(self, position):
         """
         Calculate the height of the car based on its position.
-        
+
         Parameters:
         - position (float): Current position of the car.
 
@@ -104,7 +112,9 @@ class MountainCarHeightRewardShaper(RewardShaper):
         - Reshaped rewards.
         """
         # Calculate height-based rewards.
-        height_rewards = [self.height(obs[0]) * self.height_weight for obs in observations]
+        height_rewards = [
+            self.height(obs[0]) * self.height_weight for obs in observations
+        ]
 
         # Combine the original rewards with the shaped rewards.
         reshaped_rewards = [
@@ -114,11 +124,19 @@ class MountainCarHeightRewardShaper(RewardShaper):
 
         return reshaped_rewards
 
+
 class MountainCarAdvancedRewardShaper(RewardShaper):
     """
     Advanced reward shaping for the MountainCar environment, combining multiple techniques.
     """
-    def __init__(self, height_weight=1.0, velocity_weight=1.0, still_penalty=-0.5, still_threshold=0.01):
+
+    def __init__(
+        self,
+        height_weight=1.0,
+        velocity_weight=1.0,
+        still_penalty=-0.5,
+        still_threshold=0.01,
+    ):
         """
         Initialize the reward shaper with given weights and parameters.
 
@@ -137,7 +155,7 @@ class MountainCarAdvancedRewardShaper(RewardShaper):
     def height(self, position):
         """
         Calculate the height of the car based on its position.
-        
+
         Parameters:
         - position (float): Current position of the car.
 
@@ -160,27 +178,31 @@ class MountainCarAdvancedRewardShaper(RewardShaper):
         reshaped_rewards = []
         for reward, obs in zip(rewards, observations):
             position, velocity = obs
-            
+
             # Height-based reward
             height_reward = self.height(position) * self.height_weight
-            
+
             # Velocity-based reward
             velocity_reward = abs(velocity) * self.velocity_weight
-            
+
             # Penalty for staying still
             penalty = self.still_penalty if abs(velocity) < self.still_threshold else 0
-            
+
             # Combine the rewards
             total_reward = reward + height_reward + velocity_reward + penalty
             reshaped_rewards.append(total_reward)
-        
+
         return reshaped_rewards
+
 
 class MountainCarDirectionalRewardShaper(RewardShaper):
     """
     Reward shaping for MountainCar based on height, velocity direction, and distance from the goal.
     """
-    def __init__(self, height_weight=1.0, velocity_direction_weight=1.0, distance_weight=1.0):
+
+    def __init__(
+        self, height_weight=1.0, velocity_direction_weight=1.0, distance_weight=1.0
+    ):
         super().__init__()
         self.height_weight = height_weight
         self.velocity_direction_weight = velocity_direction_weight
@@ -191,13 +213,13 @@ class MountainCarDirectionalRewardShaper(RewardShaper):
 
     def reshape(self, rewards, observations, next_observations=None):
         reshaped_rewards = []
-        
+
         for reward, obs in zip(rewards, observations):
             position, velocity = obs
-            
+
             # Height-based reward
             height_reward = self.height(position) * self.height_weight
-            
+
             # Velocity direction reward
             if (position < 0 and velocity > 0) or (position > 0 and velocity < 0):
                 direction_reward = abs(velocity) * self.velocity_direction_weight
@@ -207,18 +229,22 @@ class MountainCarDirectionalRewardShaper(RewardShaper):
             # Distance from the goal reward
             goal_position = 0.5
             distance_reward = -abs(goal_position - position) * self.distance_weight
-            
+
             # Combine the rewards
             total_reward = reward + height_reward + direction_reward + distance_reward
             reshaped_rewards.append(total_reward)
-        
+
         return reshaped_rewards
 
+
 import torch
+
+
 class TDRewardShaper(RewardShaper):
     """
     Reward shaping for MountainCar based on Temporal Difference (TD) error.
     """
+
     def __init__(self, model, device, gamma=0.99):
         super().__init__()
         self.model = model  # The neural network model used by PPO to estimate values
@@ -236,7 +262,7 @@ class TDRewardShaper(RewardShaper):
     def reshape(self, rewards, observations, next_observations):
         reshaped_rewards = []
         with torch.no_grad():
-            for t in range(len(rewards)):  
+            for t in range(len(rewards)):
                 reward = rewards[t]
                 current_state = observations[t]
                 next_state = next_observations[t]
@@ -244,4 +270,3 @@ class TDRewardShaper(RewardShaper):
                 r = (reward + td).cpu().numpy().item()
                 reshaped_rewards.append(r)
         return reshaped_rewards
-
