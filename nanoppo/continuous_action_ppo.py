@@ -237,14 +237,15 @@ def rollout_with_step(
             steps += 1
             if done or truncated:
                 total_rewards = accumulated_rewards
+                accumulated_rewards = 0
                 if debug:
                     print(
                         "total steps",
                         total_steps,
                         "steps",
                         steps,
-                        "accumulated_rewards",
-                        accumulated_rewards,
+                        "total_rewards[done|truncated]",
+                        total_rewards,
                         "done",
                         done,
                         "truncated",

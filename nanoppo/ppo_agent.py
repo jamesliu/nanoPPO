@@ -8,7 +8,6 @@ import numpy as np
 from tqdm import tqdm
 import gym
 import os
-import click
 from nanoppo.environment_manager import EnvironmentManager
 from nanoppo.network_manager import NetworkManager
 from nanoppo.checkpoint_manager import CheckpointManager
@@ -210,14 +209,15 @@ class PPOAgent:
                 steps += 1
                 if done or truncated:
                     total_rewards = accumulated_rewards
+                    accumulated_rewards = 0
                     if debug:
                         print(
                             "total steps",
                             total_steps,
                             "steps",
                             steps,
-                            "accumulated_rewards",
-                            accumulated_rewards,
+                            "total_rewards(done or truncated)",
+                            total_rewards,
                             "done",
                             done,
                             "truncated",
