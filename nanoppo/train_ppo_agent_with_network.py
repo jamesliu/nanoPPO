@@ -96,7 +96,7 @@ for episode in range(1, max_episodes + 1):
         if done:
             break
 
-    avg_length += t
+    avg_length += t + 1
 
     # Logging
     if episode % log_interval == 0:
