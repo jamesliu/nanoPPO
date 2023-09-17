@@ -2,9 +2,9 @@ import gym
 from gym import spaces
 import numpy as np
 
-class PointMassEnv(gym.Env):
+class PointMass1DEnv(gym.Env):
     def __init__(self):
-        super(PointMassEnv, self).__init__()
+        super(PointMass1DEnv, self).__init__()
         
         # Action space: Force [-1.0, 1.0]
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=float)
