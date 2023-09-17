@@ -17,7 +17,7 @@ class PointMassEnv(gym.Env):
         self.current_step = 0
 
     def reset(self):
-        self.state = [10.0 * (2 * np.random.rand() - 1), 0.0]  # random initial position, zero velocity
+        self.state = [0.5 * (2 * np.random.rand() - 1), 0.0]  # random initial position, zero velocity
         self.current_step = 0
         return self.state, {}
 
