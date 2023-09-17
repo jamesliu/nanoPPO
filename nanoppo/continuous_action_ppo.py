@@ -607,7 +607,7 @@ def train(
         average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
         if len(episode_rewards) >= 20:
             if wandb_log:
-                log_rewards(episode_rewards[-20:])
+                log_rewards(episode_rewards[-20:]) 
             if metrics_recorder:
                 metrics_recorder.record_rewards(episode_rewards[-20:])
             if report_func:
@@ -696,7 +696,7 @@ def update_config(aconfig):
         {
             "optimizer_config": o,
             "checkpoint_path": str(
-                Path("checkpoints") / "myppo_onpolicy" / c["env_name"]
+                Path("checkpoints") / c["project"] / c["env_name"]
             ),
         }
     )
