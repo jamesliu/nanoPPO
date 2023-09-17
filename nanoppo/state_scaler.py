@@ -34,7 +34,6 @@ class StateScaler:
             scaler = QuantileTransformer()
         else:
             raise ValueError(f"Unknown scale type: {scale_type}")
-
         scaler.fit(state_space_samples)
         return scaler
 

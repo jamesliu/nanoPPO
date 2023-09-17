@@ -26,6 +26,7 @@ from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
 from nanoppo.network import PolicyNetwork, ValueNetwork
 from nanoppo.random_utils import set_seed
+from nanoppo.envs.point_mass import PointMassEnv
 from time import time
 import warnings
 
@@ -34,7 +35,7 @@ warnings.filterwarnings(
     "ignore",
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
-
+gym.register("PointMass-v0", entry_point=PointMassEnv, max_episode_steps=200)
 # SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
 # set_seed(SEED)
 
@@ -203,7 +204,6 @@ def rollout_with_step(
             log_prob = log_prob.numpy()
 
             next_state, reward, done, truncated, info = env.step(action)
-
             if isinstance(next_state, dict):
                 next_state = next_state["obs"]
 
@@ -457,10 +457,53 @@ def train_networks(
         # compute the mean activation norm for the value network
         activation_norm = sum(activation_norms) / len(activation_norms)
         """
+    
+        # 1. Loss Magnitude Monitoring
+        abs_policy_loss = torch.abs(policy_loss).item()
+        abs_value_loss = torch.abs(value_loss).item()
+        abs_total_loss = torch.abs(total_loss).item()
+    
+        # 2. Gradient Magnitude Monitoring
+        policy_gradient_magnitude = torch.norm(
+            torch.cat([p.grad.view(-1) for p in policy.parameters()])
+        ).item()
+        value_gradient_magnitude = torch.norm(
+            torch.cat([p.grad.view(-1) for p in value.parameters()])
+        ).item()
+    
+        # 3. Learning Rate Monitoring
+        policy_lr = optimizer.param_groups[0]['lr']
+        value_lr = optimizer.param_groups[1]['lr']
+    
+        # 4. Parameter Magnitude
+        policy_param_magnitude = torch.norm(
+            torch.cat([p.data.view(-1) for p in policy.parameters()])
+        ).item()
+        value_param_magnitude = torch.norm(
+            torch.cat([p.data.view(-1) for p in value.parameters()])
+        ).item()
+    
+
 
         optimizer.step()
         if scheduler is not None:
             scheduler.step()
+    
+        if wandb_log:
+            # ... [your existing wandb.log code here]
+    
+            # Log additional metrics
+            wandb.log({
+                'Magnitude/AbsPolicyLoss': abs_policy_loss,
+                'Magnitude/AbsValueLoss': abs_value_loss,
+                'Magnitude/AbsTotalLoss': abs_total_loss,
+                'Magnitude/PolicyGradient': policy_gradient_magnitude,
+                'Magnitude/ValueGradient': value_gradient_magnitude,
+                'Magnitude/PolicyParameters': policy_param_magnitude,
+                'Magnitude/ValueParameters': value_param_magnitude,
+                'LR/Policy': policy_lr,
+                'LR/Value': value_lr
+            })
 
         if wandb_log:
             # Log the losses and gradients to WandB
@@ -691,6 +734,7 @@ def train(
 
 
 config = {
+    "project": "continuous-action-ppo",
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
     "seed": None,
@@ -750,7 +794,10 @@ def update_config(aconfig):
 
 if __name__ == "__main__":
     env_name = "MountainCarContinuous-v0"
-    # env_name = 'Pendulum-v1'
+    env_name = 'Pendulum-v1'
+    env_name = 'LunarLanderContinuous-v2'
+    env_name = 'BipedalWalker-v3'
+    env_name = 'PointMass-v0'
 
     if env_name == "MountainCarContinuous-v0":
         best_config = (
@@ -792,6 +839,16 @@ if __name__ == "__main__":
             "entropy_coef": 3.015475350516561e-05,
             "tau": 0.9552356381259465,
         }
+        best_config = {'project': 'tune_continuous_action_ppo', 'seed': 684, 'env_name': 'Pendulum-v1', 'policy_lr': 0.004045246630390333, 'value_lr': 9.385638386366823e-05, 'weight_decay': 0.00014787566718110943, 'sgd_iters': 5, 'rollout_buffer_size': 512, 'scale_states': 'robust', 'use_gae': False, 'init_type': 'he', 'batch_size': 256, 'clip_param': 0.4949315363015096, 'max_grad_norm': 0.09811332067771494, 'vf_coef': 1.9972970256935074, 'entropy_coef': 0.0009703720514156818, 'tau': 0.9708373816559092}
+    elif env_name == "LunarLanderContinuous-v2":
+        pass
+    elif env_name == "BipedalWalker-v3":
+        pass
+    elif env_name == "PointMass-v0":
+        best_config = {
+            "env_name": "PointMass-v0",
+        }
+
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
     print("train config", train_config)
