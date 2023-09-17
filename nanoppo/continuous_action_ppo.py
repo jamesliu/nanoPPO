@@ -26,7 +26,8 @@ from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
 from nanoppo.network import PolicyNetwork, ValueNetwork
 from nanoppo.random_utils import set_seed
-from nanoppo.envs.point_mass import PointMassEnv
+from nanoppo.envs.point_mass1d import PointMass1DEnv 
+from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
 from time import time
 import warnings
@@ -36,7 +37,8 @@ warnings.filterwarnings(
     "ignore",
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
-gym.register("PointMass-v0", entry_point=PointMassEnv, max_episode_steps=200)
+gym.register("PointMass1D-v0", entry_point=PointMass1DEnv, max_episode_steps=1000)
+gym.register("PointMass2D-v0", entry_point=PointMass2DEnv, max_episode_steps=1000)
 # SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
 # set_seed(SEED)
 
@@ -380,7 +382,6 @@ def train_networks(
         num_batches = num_samples // batch_size
         assert num_batches == 1
 
-        optimizer.zero_grad()
         policy_loss, entropy_loss = surrogate(
             policy,
             old_probs=batch_probs,
@@ -411,6 +412,7 @@ def train_networks(
         # Compute total loss and update parameters
         total_loss = policy_loss + entropy_loss + vf_coef * value_loss
 
+        optimizer.zero_grad()
         total_loss.backward()
 
         # Clip the gradients to avoid exploding gradients
@@ -722,7 +724,7 @@ config = {
     "vf_coef": 1,
     "clip_param": 0.2,
     "max_grad_norm": 10,
-    "entropy_coef": 1e-4,
+    "entropy_coef": 1e-2,
     "wandb_log": True,
     "verbose": 2,
     "checkpoint_interval": 100,
@@ -759,13 +761,13 @@ def update_config(aconfig):
     )
     return c
 
-
-if __name__ == "__main__":
+def train_env(env_name):
     env_name = "MountainCarContinuous-v0"
     env_name = 'Pendulum-v1'
     env_name = 'LunarLanderContinuous-v2'
     env_name = 'BipedalWalker-v3'
-    env_name = 'PointMass-v0'
+    env_name = 'PointMass1D-v0'
+    env_name = 'PointMass2D-v0'
 
     if env_name == "MountainCarContinuous-v0":
         best_config = (
@@ -812,9 +814,13 @@ if __name__ == "__main__":
         pass
     elif env_name == "BipedalWalker-v3":
         pass
-    elif env_name == "PointMass-v0":
+    elif env_name == "PointMass1D-v0":
         best_config = {
-            "env_name": "PointMass-v0",
+            "env_name": "PointMass1D-v0",
+        }
+    elif env_name == "PointMass2D-v0":
+        best_config = {
+            "env_name": "PointMass2D-v0",
         }
 
     best_config["env_name"] = env_name
@@ -823,3 +829,11 @@ if __name__ == "__main__":
     set_seed(train_config.pop("seed", None))
     policy, value, average_reward, total_iters = train(**train_config)
     print("train", "average reward", average_reward, "total iters", total_iters)
+
+@click.command()
+@click.option("--env_name", default="PointMass1D-v0")
+def cli(env_name):
+    train_env(env_name=env_name)
+    
+if __name__ == "__main__":
+    cli()

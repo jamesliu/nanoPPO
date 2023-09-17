@@ -18,6 +18,7 @@ from nanoppo.reward_scaler import RewardScaler
 from nanoppo.reward_shaper import RewardShaper, TDRewardShaper
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
+from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
 
 import warnings
 
@@ -234,19 +235,6 @@ class PPOAgent:
                     yield None, steps, total_steps
 
     @staticmethod
-    def compute_gae(next_value, rewards, masks, values, gamma, tau):
-        values = values + [next_value]
-        gae = 0
-        returns = []
-        for step in reversed(range(len(rewards))):
-            delta = (
-                rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
-            )
-            gae = delta + gamma * tau * masks[step] * gae
-            returns.insert(0, gae + values[step])
-        return returns
-
-    @staticmethod
     def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef):
         # Policy loss
         dist = policy(states)
@@ -321,25 +309,19 @@ class PPOAgent:
                     values = value(batch_states).squeeze().tolist()
                     next_value = value(batch_next_states[-1]).item()
                     masks = [1 - done.item() for done in batch_dones]
-                    returns = self.compute_gae(
+                    returns = compute_gae(
                         next_value, batch_rewards, masks, values, gamma, tau
                     )
                     advs = [ret - val for ret, val in zip(returns, values)]
                 else:
-                    for r, state, next_state, done in zip(
-                        reversed(batch_rewards),
-                        reversed(batch_states),
-                        reversed(batch_next_states),
-                        reversed(batch_dones),
-                    ):
-                        mask = 1 - done.item()
-                        next_value = value(next_state).item()
-                        next_value = next_value * mask
-                        returns.insert(0, g)
-                        value_curr_state = value(state).item()
-                        delta = r + gamma * next_value - value_curr_state
-                        advs.insert(0, delta)
-                        g = r + gamma * next_value * mask
+                    returns, advs = compute_returns_and_advantages_without_gae(
+                        batch_rewards,
+                        batch_states,
+                        batch_next_states,
+                        batch_dones,
+                        value,
+                        gamma,
+                    )
 
             returns = torch.tensor(returns, dtype=torch.float32).to(device)
             advs = torch.tensor(advs, dtype=torch.float32).to(device)
@@ -351,7 +333,6 @@ class PPOAgent:
             num_batches = num_samples // batch_size
             assert num_batches == 1
 
-            optimizer.zero_grad()
             policy_loss, entropy_loss = PPOAgent.surrogate(
                 policy,
                 old_probs=batch_probs,
@@ -381,22 +362,10 @@ class PPOAgent:
                 value, batch_states, returns, l1_loss
             )
 
-            # Dynamically adjust vf_coef based on observed training dynamics
-            loss_ratio = policy_loss.item() / (
-                value_loss.item() + 1e-10
-            )  # Adding a small epsilon to avoid division by zero
-            # If policy loss is significantly larger, increase vf_coef
-            if loss_ratio > 10:
-                vf_coef *= 1.1
-            # If value loss is significantly larger, decrease vf_coef
-            if loss_ratio < 0.1:
-                vf_coef *= 0.9
-            # Limit vf_coef to a reasonable range to prevent it from becoming too large or too small
-            vf_coef = min(max(vf_coef, 0.1), 10)
-
             # Compute total loss and update parameters
             total_loss = policy_loss + entropy_loss + vf_coef * value_loss
 
+            optimizer.zero_grad()
             total_loss.backward()
 
             # Clip the gradients to avoid exploding gradients
