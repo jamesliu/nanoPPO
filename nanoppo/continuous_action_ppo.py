@@ -223,7 +223,7 @@ def rollout_with_step(
             if reward_shaper is None:
                 reshaped_reward = reward
             else:
-                reshaped_reward = reward_shaper.reshape([reward], [state], [next_state])
+                reshaped_reward = reward_shaper.reshape([reward], [state], [next_state])[0]
             # Scale rewards
             if reward_scaler is None:
                 scaled_reward = reshaped_reward
@@ -762,13 +762,6 @@ def update_config(aconfig):
     return c
 
 def train_env(env_name):
-    env_name = "MountainCarContinuous-v0"
-    env_name = 'Pendulum-v1'
-    env_name = 'LunarLanderContinuous-v2'
-    env_name = 'BipedalWalker-v3'
-    env_name = 'PointMass1D-v0'
-    env_name = 'PointMass2D-v0'
-
     if env_name == "MountainCarContinuous-v0":
         best_config = (
             {}
@@ -831,9 +824,9 @@ def train_env(env_name):
     print("train", "average reward", average_reward, "total iters", total_iters)
 
 @click.command()
-@click.option("--env_name", default="PointMass1D-v0")
+@click.option("--env_name", default="PointMass1D-v0", type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "MountainCarContinuous-v0", "Pendulum-v1"]))
 def cli(env_name):
     train_env(env_name=env_name)
-    
+
 if __name__ == "__main__":
     cli()

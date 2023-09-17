@@ -191,7 +191,7 @@ class PPOAgent:
                 else:
                     reshaped_reward = reward_shaper.reshape(
                         [reward], [state], [next_state]
-                    )
+                    )[0]
                 # Scale rewards
                 if reward_scaler is None:
                     scaled_reward = reshaped_reward
