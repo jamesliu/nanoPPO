@@ -1,11 +1,15 @@
 import torch
-from .ppo_agent_with_network import PPOAgent
-from .envs.point_mass2d import PointMass2DEnv 
+from nanoppo.ppo_agent_with_network import PPOAgent
+from nanoppo.envs.point_mass2d import PointMass2DEnv 
+from nanoppo.envs.point_mass1d import PointMass1DEnv
 
 # Setting up the environment and the agent
-env = PointMass2DEnv()
+#env = PointMass2DEnv()
+env = PointMass1DEnv()
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
+print('state_dim', state_dim)
+print('action_dim', action_dim)
 n_latent_var = 64
 lr = 0.0005
 betas = (0.9, 0.999)
@@ -73,7 +77,7 @@ for episode in range(1, max_episodes + 1):
     state = torch.FloatTensor(state)
     for t in range(max_timesteps):
         action, log_prob = ppo.policy.act(state)
-        next_state, reward, done, truncated, _ = env.step(action.item())
+        next_state, reward, done, truncated, _ = env.step(action.numpy())
         total_reward += reward
         next_state = torch.FloatTensor(next_state)
         ppo_memory.append(state, action, log_prob, next_state, reward, done)
