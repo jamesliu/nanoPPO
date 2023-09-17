@@ -27,6 +27,7 @@ from nanoppo.metrics_recorder import MetricsRecorder
 from nanoppo.network import PolicyNetwork, ValueNetwork
 from nanoppo.random_utils import set_seed
 from nanoppo.envs.point_mass import PointMassEnv
+from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
 from time import time
 import warnings
 
@@ -149,7 +150,8 @@ def log_rewards(rewards):
 
 
 def rescale_action(predicted_action, action_min, action_max):
-    return action_min + (predicted_action - (-1)) / 2 * (action_max - action_min)
+    rescaled_action =  action_min + (predicted_action - (-1)) / 2 * (action_max - action_min)
+    return rescaled_action
 
 
 def rollout_with_step(
@@ -200,6 +202,7 @@ def rollout_with_step(
                     }
                 )
 
+            action = rescale_action(action, env.action_space.low[0], env.action_space.high[0])
             action = action.numpy()
             log_prob = log_prob.numpy()
 
@@ -262,16 +265,6 @@ def rollout_with_step(
                 yield None, steps, total_steps
 
 
-def compute_gae(next_value, rewards, masks, values, gamma, tau):
-    values = values + [next_value]
-    gae = 0
-    returns = []
-    for step in reversed(range(len(rewards))):
-        delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
-        gae = delta + gamma * tau * masks[step] * gae
-        returns.insert(0, gae + values[step])
-    return returns
-
 
 def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef):
     # Policy loss
@@ -322,7 +315,6 @@ def select_action(policy: PolicyNetwork, state, device, action_min, action_max):
         action_std.cpu().detach(),
     )
 
-
 def train_networks(
     iter_num,
     policy,
@@ -361,7 +353,6 @@ def train_networks(
         # Compute Advantage and Returns
         returns = []
         advs = []
-        g = 0
         # Compute returns and advantages from rollout buffer samples out of order
         with torch.no_grad():
             if use_gae:
@@ -374,20 +365,10 @@ def train_networks(
                 )
                 advs = [ret - val for ret, val in zip(returns, values)]
             else:
-                for r, state, next_state, done in zip(
-                    reversed(batch_rewards),
-                    reversed(batch_states),
-                    reversed(batch_next_states),
-                    reversed(batch_dones),
-                ):
-                    mask = 1 - done.item()
-                    next_value = value(next_state).item()
-                    next_value = next_value * mask
-                    returns.insert(0, g)
-                    value_curr_state = value(state).item()
-                    delta = r + gamma * next_value - value_curr_state
-                    advs.insert(0, delta)
-                    g = r + gamma * next_value * mask
+                # Compute Advantage and Returns without GAE
+                returns, advs = compute_returns_and_advantages_without_gae(
+                    batch_rewards, batch_states, batch_next_states, batch_dones, value, gamma
+                )
 
         returns = torch.tensor(returns, dtype=torch.float32).to(device)
         advs = torch.tensor(advs, dtype=torch.float32).to(device)
@@ -426,19 +407,6 @@ def train_networks(
         """
 
         value_loss = compute_value_loss(value, batch_states, returns, l1_loss)
-
-        # Dynamically adjust vf_coef based on observed training dynamics
-        loss_ratio = policy_loss.item() / (
-            value_loss.item() + 1e-10
-        )  # Adding a small epsilon to avoid division by zero
-        # If policy loss is significantly larger, increase vf_coef
-        if loss_ratio > 10:
-            vf_coef *= 1.1
-        # If value loss is significantly larger, decrease vf_coef
-        if loss_ratio < 0.1:
-            vf_coef *= 0.9
-        # Limit vf_coef to a reasonable range to prevent it from becoming too large or too small
-        vf_coef = min(max(vf_coef, 0.1), 10)
 
         # Compute total loss and update parameters
         total_loss = policy_loss + entropy_loss + vf_coef * value_loss
@@ -743,7 +711,7 @@ config = {
     "shape_reward": None,  # [None, SubClass of RewardReshaper]
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
-    "use_gae": False,
+    "use_gae":False, 
     "tau": 0.97,
     "l1_loss": False,
     "rollout_buffer_size": 4096,
@@ -753,7 +721,7 @@ config = {
     "gamma": 0.99,
     "vf_coef": 1,
     "clip_param": 0.2,
-    "max_grad_norm": 0.9,
+    "max_grad_norm": 10,
     "entropy_coef": 1e-4,
     "wandb_log": True,
     "verbose": 2,
@@ -806,7 +774,7 @@ if __name__ == "__main__":
         best_config = {
             "env_name": "MountainCarContinuous-v0",
             "epochs": 30,
-            "rescaling_rewards": False,
+            "rescaling_rewards": True,
             "shape_reward": TDRewardShaper,
             "policy_lr": 2.2139290514335154e-04,
             "value_lr": 6.717375374452914e-04,
