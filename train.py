@@ -20,6 +20,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
               help="Type of state scaling.")
 @click.option("--batch_size", default=64, help="Batch size for training.")
 @click.option("--sgd_iters", default=4, help="Number of SGD iterations.")
+@click.option("--use_gae/--no_use_gae", is_flag=True, default=True, help="Flag to use GAE.")
 @click.option("--gamma", default=0.99, help="Discount factor.")
 @click.option("--hidden_size", default=64, help="Hidden size for the neural network.")
 @click.option(
@@ -60,6 +61,7 @@ def cli(
     scale_states,
     batch_size,
     sgd_iters,
+    use_gae,
     gamma,
     hidden_size,
     init_type,
@@ -76,6 +78,10 @@ def cli(
     resume_epoch,
     verbose,
 ):
+    if use_gae:
+        click.echo("Using GAE.")
+    else:
+        click.echo("Not using GAE.")
     # Configuration for the environment and the agent
     config = {
         "project": project,  # Name of the project
