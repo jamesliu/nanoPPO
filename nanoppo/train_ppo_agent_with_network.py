@@ -65,7 +65,9 @@ class PPOMemory:
     def get(self):
         return torch.stack(self.states), torch.stack(self.actions), torch.stack(self.logprobs), torch.stack(self.next_states), torch.stack(self.rewards), torch.stack(self.is_terminals)
 
-ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip)
+# Initialize a normalizer with the dimensionality of the state
+state_normalizer = Normalizer(state_dim)
+ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer)
 print(lr, betas)
 
 # Load the best weights
@@ -81,9 +83,6 @@ else:
 print("best_reward", best_reward)
 print("start_episode", start_episode)
 print("log_interval", log_interval)
-
-# Initialize a normalizer with the dimensionality of the state
-state_normalizer = Normalizer(state_dim)
 
 ppo_memory = PPOMemory()
 

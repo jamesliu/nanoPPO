@@ -28,7 +28,17 @@ class Normalizer:
         obs_std = np.sqrt(self.var)
         return (inputs - self.mean) / obs_std
 
-
+    def get_state(self):
+        return {
+            'mean': self.mean,
+            'variance': self.variance,
+            'n': self.n
+        }
+    
+    def set_state(self, state):
+        self.mean = state['mean']
+        self.variance = state['variance']
+        self.n = state['n']
 
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var):
@@ -94,10 +104,11 @@ class ActorCritic(nn.Module):
 
 # PPO Agent
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip):
+    def __init__(self, state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer):
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
+        self.state_normalizer = state_normalizer
 
         self.policy = ActorCritic(state_dim, action_dim, n_latent_var).float()
         self.policy_old = ActorCritic(state_dim, action_dim, n_latent_var).float()
@@ -147,10 +158,13 @@ class PPOAgent:
         torch.save({
             'model_state_dict': self.policy.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'state_normalizer_state': self.state_normalizer.get_state(),
         }, path)
         
     def load(self, path):
         checkpoint = torch.load(path)
         self.policy.load_state_dict(checkpoint['model_state_dict'])
+        self.policy_old.load_state_dict(self.policy.state_dict())
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.state_normalizer.set_state(checkpoint['state_normalizer_state'])
 
