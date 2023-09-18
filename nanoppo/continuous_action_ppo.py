@@ -29,6 +29,7 @@ from nanoppo.random_utils import set_seed
 from nanoppo.envs.point_mass1d import PointMass1DEnv 
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
+from nanoppo.normalizer import Normalizer
 from time import time
 import warnings
 
@@ -99,7 +100,7 @@ def setup_networks(
         action_dim = env.action_space.n
 
     policy = PolicyNetwork(
-        observation_space.shape[0], action_dim, 64, init_type=init_type
+        state_dim=observation_space.shape[0], action_dim=action_dim, n_latent_var=64, init_type=init_type
     ).to(device)
     value = ValueNetwork(
         observation_space.shape[0], hidden_size=hidden_size, init_type=init_type
@@ -163,6 +164,7 @@ def rollout_with_step(
     device,
     rollout_buffer: RolloutBuffer,
     state_scaler: StateScaler,
+    state_normalizer: Normalizer,
     reward_shaper: RewardShaper,
     reward_scaler: RewardScaler,
     wandb_log: bool,
@@ -177,7 +179,9 @@ def rollout_with_step(
         if state_scaler is None:
             scaled_state = state
         else:
-            scaled_state = state_scaler.scale_state(state)
+            #scaled_state = state_scaler.scale_state(state)
+            state_normalizer.observe(state)
+            scaled_state = state_normalizer.normalize(state)
         done = False
         truncated = False
         accumulated_rewards = 0
@@ -215,7 +219,9 @@ def rollout_with_step(
             if state_scaler is None:
                 scaled_next_state = next_state
             else:
-                scaled_next_state = state_scaler.scale_state(next_state)
+                #scaled_next_state = state_scaler.scale_state(next_state)
+                state_normalizer.observe(next_state)
+                scaled_next_state = state_normalizer.normalize(next_state)
 
             scaled_state = scaled_next_state
             accumulated_rewards += reward
@@ -596,6 +602,8 @@ def train(
     else:
         state_scaler = StateScaler(env, sample_size=10000, scale_type=scale_states)
 
+    state_normalizer = Normalizer(env.observation_space.shape[0])
+
     if resume_training:
         last_epoch = load_checkpoint(
             policy, value, optimizer, checkpoint_path, epoch=resume_epoch
@@ -618,6 +626,7 @@ def train(
         device,
         rollout_buffer,
         state_scaler,
+        state_normalizer,
         reward_shaper,
         reward_scaler,
         wandb_log,
@@ -718,7 +727,7 @@ config = {
     "shape_reward": None,  # [None, SubClass of RewardReshaper]
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
     "init_type": "he",  # xavier, he
-    "use_gae":False, 
+    "use_gae":True, 
     "tau": 0.97,
     "l1_loss": False,
     "rollout_buffer_size": 4096,
@@ -728,7 +737,7 @@ config = {
     "gamma": 0.99,
     "vf_coef": 1,
     "clip_param": 0.2,
-    "max_grad_norm": 10,
+    "max_grad_norm": 1,
     "entropy_coef": 1e-2,
     "wandb_log": True,
     "verbose": 2,
@@ -821,6 +830,7 @@ def train_env(env_name):
             "env_name": "PointMass2D-v0",
             "use_gae": True
         }
+        best_config =  {'project': 'tune_continuous_action_ppo', 'seed': 646, 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'rollout_buffer_size': 1024, 'scale_states': 'standard', 'use_gae': True, 'batch_size': 256, 'entropy_coef': 0.0005311337053591307, 'tau': 0.9705264772015547}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)

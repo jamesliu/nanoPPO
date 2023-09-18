@@ -1,46 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 
 # Neural Network for Actor-Critic
 import torch.nn as nn
 import torch.nn.functional as F
-
-class Normalizer:
-    def __init__(self, dim):
-        # Mean, standard deviation, and count for each dimension
-        self.n = np.zeros(dim)
-        self.mean = np.zeros(dim)
-        self.mean_diff = np.zeros(dim)
-        self.variance = np.zeros(dim)
-
-    def observe(self, x):
-        """Update statistics"""
-        self.n += 1.0
-        last_mean = self.mean.copy()
-        self.mean += (x - self.mean) / self.n
-        self.mean_diff += (x - last_mean) * (x - self.mean)
-        self.variance = (self.mean_diff / self.n).clip(min=1e-2)
-
-    def normalize(self, inputs):
-        """Normalize input using running mean and variance"""
-        obs_std = np.sqrt(self.variance)
-        return (inputs - self.mean) / obs_std
-
-    def get_state(self):
-        return {
-            'n': self.n,
-            'mean': self.mean,
-            'mean_diff': self.mean_diff,
-            'variance': self.variance,
-        }
-    
-    def set_state(self, state):
-        self.n = state['n']
-        self.mean = state['mean']
-        self.mean_diff = state['mean_diff']
-        self.variance = state['variance']
 
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var, action_low, action_high):
@@ -88,7 +52,7 @@ class ActorCritic(nn.Module):
             # Assuming env.action_space.low and env.action_space.high are numpy arrays
             action_low_tensor = torch.tensor(self.action_low, dtype=torch.float32)
             action_high_tensor = torch.tensor(self.action_high, dtype=torch.float32)
-            action = torch.clamp(action, action_low_tensor, action_high_tensor)
+            #action = torch.clamp(action, action_low_tensor, action_high_tensor)
 
         if compute_logprobs:
             logprobs = dist.log_prob(action).sum(axis=-1)
