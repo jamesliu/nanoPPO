@@ -21,7 +21,7 @@ eps_clip = 0.2
 max_timesteps = 200
 update_timestep = 200
 log_interval = 20
-max_episodes = 1000  # Modify this value based on how many episodes you want to train
+max_episodes = 300  # Modify this value based on how many episodes you want to train
 
 
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
@@ -72,7 +72,7 @@ print(lr, betas)
 if os.path.exists("best_weights.pth"):
     metrics = pickle.load(open('metrics.pkl', 'rb'))
     best_reward = metrics['best_reward']
-    start_episode = metrics['episode']
+    start_episode = metrics['episode'] + 1
     ppo.load("best_weights.pth")
     print("Loaded best weights!")
 else:
@@ -89,8 +89,8 @@ ppo_memory = PPOMemory()
 
 # Training loop
 time_step = 0
-avg_length = 0
-cumulative_reward = 0  # Initialize cumulative reward
+avg_length_list = []
+cumulative_reward_list = []  # Initialize cumulative reward
 for episode in range(start_episode, max_episodes + start_episode):
     state, info = env.reset()
     state_normalizer.observe(state)
@@ -126,18 +126,18 @@ for episode in range(start_episode, max_episodes + start_episode):
         if done:
             break
 
-    avg_length += t + 1
+    avg_length_list.append(t + 1)
 
-    cumulative_reward += total_reward  # Increment the cumulative reward by total reward of this episode
+    cumulative_reward_list.append(total_reward) 
 
     # Logging
     if episode % log_interval == 0:
-        avg_length = int(avg_length / log_interval)
-        avg_reward = int(cumulative_reward / log_interval)
-        print('Episode {} \t avg length: {} \t reward: {}'.format(episode, avg_length, avg_reward))
-        avg_length = 0
-        cumulative_reward = 0  # Reset cumulative reward after logging
-        total_reward = 0
+        sample_length = len(avg_length_list)
+        avg_length = int(sum(avg_length_list) / sample_length)
+        avg_reward = int(sum(cumulative_reward_list) / sample_length)
+        print('Episode {} \t sample length:{} avg length: {} \t reward: {}'.format(episode, sample_length, avg_length, avg_reward))
+        avg_length_list = []
+        cumulative_reward_list = []  # Reset cumulative reward after logging
         if avg_reward > best_reward:
             print('avg_reward', avg_reward, '> best_reward', best_reward)
             best_reward = avg_reward
