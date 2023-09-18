@@ -129,9 +129,9 @@ class PPOAgent:
 
         # action = torch.tanh(action)  # Pass the sampled action through the tanh activation function
         # action = action + torch.normal(mean=torch.zeros_like(action), std=action_std)  # Add noise to the action
-        action = action.clamp(
-            action_min, action_max
-        )  # Clip the action to the valid range of the action space
+        #action = action.clamp(
+        #    action_min, action_max
+        #)  # Clip the action to the valid range of the action space
         return (
             action.cpu().detach(),
             log_prob.cpu().detach(),
@@ -142,7 +142,6 @@ class PPOAgent:
     @staticmethod
     def rollout_with_step(
         policy,
-        value,
         env,
         device,
         rollout_buffer: RolloutBuffer,
@@ -159,7 +158,10 @@ class PPOAgent:
             state, info = env.reset()
             if isinstance(state, dict):
                 state = state["obs"]
-            if state_scaler:
+            if normalizer:
+                normalizer.observe(state)
+                scaled_state = normalizer.normalize(state)
+            elif state_scaler:
                 scaled_state = state_scaler.scale_state(state)
             else:
                 scaled_state = state
@@ -187,10 +189,13 @@ class PPOAgent:
 
                 if isinstance(next_state, dict):
                     next_state = next_state["obs"]
-                if state_scaler is None:
-                    scaled_next_state = next_state
-                else:
+                if normalizer:
+                    normalizer.observe(next_state)
+                    scaled_next_state = normalizer.normalize(next_state)
+                elif state_scaler:
                     scaled_next_state = state_scaler.scale_state(next_state)
+                else:
+                    scaled_next_state = next_state
 
                 scaled_state = scaled_next_state
                 accumulated_rewards += reward
@@ -220,7 +225,7 @@ class PPOAgent:
                 if done or truncated:
                     total_rewards = accumulated_rewards
                     accumulated_rewards = 0
-                    if debug:
+                    if debug and (total_steps % 1000 == 0):
                         print(
                             "total steps",
                             total_steps,
@@ -503,7 +508,6 @@ class PPOAgent:
         # Set up rollout generator
         rollout = PPOAgent.rollout_with_step(
             policy=policy,
-            value=value,
             env=env,
             device=device,
             rollout_buffer=rollout_buffer,
@@ -526,6 +530,7 @@ class PPOAgent:
             policy.eval()
             value.eval()
             rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
+            
             for r in range(batch_size):
                 total_rewards, steps, rollout_steps = next(rollout)
                 if total_rewards is not None:
@@ -575,6 +580,10 @@ class PPOAgent:
                 print("env", env_name,
                     "epoch",
                     epoch + 1,
+                    "total sampled episodes",
+                    len(episode_rewards),
+                    "everage episode steps",
+                    np.mean(episode_steps),
                     "average reward",
                     average_reward,
                     "train epochs",
