@@ -8,8 +8,10 @@ def init_weights(m, init_type="default"):
     if isinstance(m, nn.Linear):
         if init_type == "he":
             nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+            nn.init.zeros_(m.bias)
         elif init_type == "xavier":
             nn.init.xavier_normal_(m.weight)
+            nn.init.zeros_(m.bias)
         elif init_type == "default":
             # The default initialization in PyTorch for Linear layers
             # is almost like Xavier uniform. We'll simply skip any
@@ -17,7 +19,6 @@ def init_weights(m, init_type="default"):
             pass
         else:
             raise ValueError(f"Initialization type {init_type} not recognized.")
-        nn.init.zeros_(m.bias)
 
 class PolicyNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var, init_type="he"):

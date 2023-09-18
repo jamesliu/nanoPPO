@@ -2,7 +2,7 @@ import gym
 
 
 class EnvironmentManager:
-    def __init__(self, env_name, env_config=None):
+    def __init__(self, env_name, env_config:dict=None):
         self.env_name = env_name
         self.env_config = env_config
 

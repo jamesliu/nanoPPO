@@ -150,7 +150,7 @@ for episode in range(start_episode, max_episodes + start_episode):
         sample_length = len(avg_length_list)
         avg_length = int(sum(avg_length_list) / sample_length)
         avg_reward = float(sum(cumulative_reward_list) / sample_length)
-        print('Episode {} \t sample length:{} avg length: {} \t avg reward: {}'.format(episode, sample_length, avg_length, avg_reward))
+        print('Episode {} \t sample length:{} avg length: {} \t avg reward: {} best reward: {}'.format(episode, sample_length, avg_length, avg_reward, best_reward))
         avg_length_list = []
         cumulative_reward_list = []  # Reset cumulative reward after logging
         if avg_reward > best_reward:

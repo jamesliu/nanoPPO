@@ -100,7 +100,7 @@ def setup_networks(
         action_dim = env.action_space.n
 
     policy = PolicyNetwork(
-        state_dim=observation_space.shape[0], action_dim=action_dim, n_latent_var=64, init_type=init_type
+        state_dim=observation_space.shape[0], action_dim=action_dim, n_latent_var=hidden_size, init_type=init_type
     ).to(device)
     value = ValueNetwork(
         observation_space.shape[0], hidden_size=hidden_size, init_type=init_type
@@ -732,12 +732,12 @@ config = {
     "gamma": 0.99,
     "tau": 0.95,
     "l1_loss": False,
-    "sgd_iters": 20,
-    "hidden_size": 64,
+    "hidden_size": 128,
     "batch_size": 256,
+    "sgd_iters": 1,
     "vf_coef": 0.5,
     "clip_param": 0.2,
-    "max_grad_norm": 1,
+    "max_grad_norm": 2,
     "entropy_coef": 1e-2,
     "wandb_log": True,
     "verbose": 2,
@@ -745,10 +745,10 @@ config = {
 }
 
 optimizer_config = {
-    "policy_lr": 3 * 1e-4,
-    "value_lr": 3 * 1e-4,
+    "policy_lr": 5 * 1e-4,
+    "value_lr": 5 * 1e-4,
     "beta1": 0.9,
-    "beta2": 0.98,
+    "beta2": 0.999,
     "epsilon": 1e-8,
     "weight_decay": 1e-4,
     "scheduler": None,  # None, exponential, cosine
@@ -825,7 +825,7 @@ def train_env(env_name):
             "env_name": "PointMass1D-v0",
         }
     elif env_name == "PointMass2D-v0":
-        best_config =  {'project': 'continuous_action_ppo','epchs':1000, 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-04, 'value_lr': 9.105973247901589e-04, 'weight_decay': 0.000197853572415373, 'sgd_iters': 1, 'use_gae': True, 'batch_size': 128}
+        best_config =  {'project': 'continuous_action_ppo', 'epochs':1000, 'env_name': 'PointMass2D-v0',  'weight_decay': 0.000197853572415373}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
