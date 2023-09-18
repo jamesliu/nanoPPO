@@ -10,6 +10,8 @@ class Normalizer:
 
     def observe(self, x):
         """Update statistics"""
+        if x.dtype != np.float32:
+            x = x.astype(np.float32)
         self.n += 1.0
         last_mean = self.mean.copy()
         self.mean += (x - self.mean) / self.n
@@ -18,6 +20,8 @@ class Normalizer:
 
     def normalize(self, inputs):
         """Normalize input using running mean and variance"""
+        if inputs.dtype != np.float32:
+            inputs = inputs.astype(np.float32)
         obs_std = np.sqrt(self.variance)
         v = (inputs - self.mean) / obs_std
         return v.astype(np.float32)
