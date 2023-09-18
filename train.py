@@ -11,7 +11,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
     type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]),
     help="Name of the environment.",
 )
-@click.option("--epochs", default=100, help="Number of training epochs.")
+@click.option("--epochs", default=500, help="Number of training epochs.")
 @click.option(
     "--rescaling_rewards", is_flag=True, default=False, help="Flag to rescale rewards."
 )
@@ -19,7 +19,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
               type=click.Choice(["default", "env", "standard", "minmax", "robust", "quantile"]),
               help="Type of state scaling.")
 @click.option("--batch_size", default=64, help="Batch size for training.")
-@click.option("--sgd_iters", default=1, help="Number of SGD iterations.")
+@click.option("--sgd_iters", default=4, help="Number of SGD iterations.")
 @click.option("--gamma", default=0.99, help="Discount factor.")
 @click.option("--hidden_size", default=64, help="Hidden size for the neural network.")
 @click.option(
@@ -32,7 +32,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 @click.option("--vf_coef", default=0.5, help="Value function coefficient.")
 @click.option("--entropy_coef", default=1e-2, help="Entropy coefficient.")
 @click.option(
-    "--max_grad_norm", default=30, help="Maximum gradient norm for clipping."
+    "--max_grad_norm", default=2, help="Maximum gradient norm for clipping."
 )
 @click.option(
     "--wandb_log", is_flag=True, default=True, help="Flag to log results to wandb."
