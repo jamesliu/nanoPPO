@@ -1,6 +1,10 @@
 import torch
+from typing import List
 
-def compute_gae(next_value, rewards, masks, values, gamma, tau):
+def compute_gae(next_value:float, rewards:List[torch.Tensor],  # List of float32 tensors
+                masks:List[torch.Tensor],  # List of float32 tensors
+                values:List[torch.Tensor], # List of float32 tensors
+                gamma:float, tau:float):
     values = values + [next_value]
     gae = 0
     returns = []

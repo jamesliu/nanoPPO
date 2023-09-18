@@ -208,7 +208,7 @@ def rollout_with_step(
                     }
                 )
 
-            action = rescale_action(action, env.action_space.low[0], env.action_space.high[0])
+            #action = rescale_action(action, env.action_space.low[0], env.action_space.high[0])
             action = action.numpy()
             log_prob = log_prob.numpy()
 
@@ -292,6 +292,7 @@ def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef
 
 def compute_value_loss(value, states, returns, l1_loss):
     # Compute value loss
+    breakpoint()
     v_pred = value(states).squeeze()
     v_target = returns.squeeze()
     value_loss = (
@@ -372,8 +373,10 @@ def train_networks(
                 returns = compute_gae(
                     next_value, batch_rewards, masks, values, gamma, tau
                 )
+                breakpoint()
                 advs = [ret - val for ret, val in zip(returns, values)]
             else:
+                raise NotImplementedError
                 # Compute Advantage and Returns without GAE
                 returns, advs = compute_returns_and_advantages_without_gae(
                     batch_rewards, batch_states, batch_next_states, batch_dones, value, gamma
@@ -388,7 +391,7 @@ def train_networks(
         assert num_samples == batch_size
         num_batches = num_samples // batch_size
         assert num_batches == 1
-
+        
         policy_loss, entropy_loss = surrogate(
             policy,
             old_probs=batch_probs,
@@ -722,20 +725,20 @@ config = {
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
     "seed": None,
-    "epochs": 30,
-    "rescaling_rewards": True,
+    "epochs": 200,
+    "rescaling_rewards": False,
     "shape_reward": None,  # [None, SubClass of RewardReshaper]
     "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
-    "init_type": "he",  # xavier, he
+    "init_type": "default",  # xavier, he
     "use_gae":True, 
-    "tau": 0.97,
+    "gamma": 0.99,
+    "tau": 0.95,
     "l1_loss": False,
     "rollout_buffer_size": 4096,
     "sgd_iters": 20,
     "hidden_size": 64,
     "batch_size": 64,
-    "gamma": 0.99,
-    "vf_coef": 1,
+    "vf_coef": 0.5,
     "clip_param": 0.2,
     "max_grad_norm": 1,
     "entropy_coef": 1e-2,
@@ -746,12 +749,12 @@ config = {
 
 optimizer_config = {
     "policy_lr": 3 * 1e-4,
-    "value_lr": 3 * 1e-5,
+    "value_lr": 3 * 1e-4,
     "beta1": 0.9,
     "beta2": 0.98,
     "epsilon": 1e-8,
     "weight_decay": 1e-4,
-    "scheduler": "cosine",  # None, exponential, cosine
+    "scheduler": None,  # None, exponential, cosine
     "exponential_gamma": 0.9995,  # for exponential scheduler only
     "cosine_T_max": config["epochs"] * config["sgd_iters"],  # for cosine scheduler only
 }
@@ -826,11 +829,7 @@ def train_env(env_name):
             "env_name": "PointMass1D-v0",
         }
     elif env_name == "PointMass2D-v0":
-        best_config = {
-            "env_name": "PointMass2D-v0",
-            "use_gae": True
-        }
-        best_config =  {'project': 'tune_continuous_action_ppo', 'seed': 646, 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'rollout_buffer_size': 1024, 'scale_states': 'standard', 'use_gae': True, 'batch_size': 256, 'entropy_coef': 0.0005311337053591307, 'tau': 0.9705264772015547}
+        best_config =  {'project': 'continuous_action_ppo', 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'rollout_buffer_size': 1024, 'use_gae': True, 'batch_size': 256}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
