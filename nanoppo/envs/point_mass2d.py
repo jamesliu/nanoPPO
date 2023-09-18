@@ -18,7 +18,7 @@ class PointMass2DEnv(gym.Env):
         self.state = None
 
     def reset(self):
-        self.state = np.array([np.random.uniform(-self.range, self.range), np.random.uniform(-self.range, self.range)])
+        self.state = np.array([np.random.uniform(-self.range, self.range), np.random.uniform(-self.range, self.range)], dtype=np.float32)
         self.current_step = 0
         return self.state, {}
 
