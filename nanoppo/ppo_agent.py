@@ -16,6 +16,7 @@ from nanoppo.policy.network import PolicyNetwork, ValueNetwork
 from nanoppo.rollout_buffer import RolloutBuffer
 from nanoppo.reward_scaler import RewardScaler
 from nanoppo.reward_shaper import RewardShaper, TDRewardShaper
+from nanoppo.normalizer import Normalizer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
 from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
@@ -37,6 +38,7 @@ class PPOAgent:
             self.device = torch.device("cpu")
         else:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.project = config["project"]
         self.env_name = config["env_name"]
         self.env_manager = EnvironmentManager(self.env_name, config["env_config"])
         self.env = self.env_manager.setup_env()
@@ -60,14 +62,18 @@ class PPOAgent:
             self.reward_scaler = RewardScaler()
         else:
             self.reward_scaler = None
-
-        if self.config["scale_states"] is None:
-            self.state_scaler = None
-        else:
+        
+        self.normalizer = None
+        self.state_scaler = None
+        if self.config["scale_states"] == 'default':
+            self.normalizer = Normalizer(self.env.observation_space.shape[0])
+        elif self.config["scale_states"] in ["env", "standard", "minmax", "robust", "quantile"]:
             self.state_scaler = StateScaler(
                 self.env, sample_size=10000, scale_type=self.config["scale_states"]
             )
-
+        else:
+            raise ValueError(f"Unknown scale type: {self.config['scale_states']}")
+        
         self.metrics_log = self.config["metrics_log"]
         if self.metrics_log:
             self.metrics_recorder = MetricsRecorder()
@@ -88,9 +94,11 @@ class PPOAgent:
             ]
             [config.pop(key, None) for key in keys_to_delete]
             WandBLogger.init(project=self.project, name=self.env_name, config=config)
-        self.checkpoint_path = os.path.join(
+        self.checkpoint_interval = self.config["checkpoint_interval"]
+        self.checkpoint_dir = os.path.join(
             self.config["checkpoint_dir"], self.project, self.env_name
         )
+        self.log_interval = self.config["log_interval"]
 
     @staticmethod
     def get_epoch_iterator(last_epoch, epochs, verbose: int):
@@ -138,6 +146,7 @@ class PPOAgent:
         env,
         device,
         rollout_buffer: RolloutBuffer,
+        normalizer: Normalizer,
         state_scaler: StateScaler,
         reward_shaper: RewardShaper,
         reward_scaler: RewardScaler,
@@ -410,7 +419,7 @@ class PPOAgent:
                     }
                 )
                 # wandb.log({"Gradients/ValueNet": wandb.Histogram(value.fc1.weight.grad.detach().cpu().numpy())})
-                log_std_value = policy.log_std.detach().cpu().numpy()
+                log_std_value = policy.action_log_std(batch_states).detach().cpu().numpy()
                 WandBLogger.log({"Policy/Log_Std": log_std_value})
             # log the learning rate to wandb
             lrs = {}
@@ -438,12 +447,14 @@ class PPOAgent:
 
     @staticmethod
     def train_with_epoch(
+        project:str,
         env: gym.Env,
         env_name: str,
         env_config: dict,
         rollout_buffer: RolloutBuffer,
         state_scaler: StateScaler,
         shape_reward: RewardShaper,
+        normalizer: Normalizer,
         reward_scaler: RewardScaler,
         policy: PolicyNetwork,
         value: ValueNetwork,
@@ -453,9 +464,6 @@ class PPOAgent:
         batch_size: int,
         sgd_iters: int,
         gamma: float,
-        # optimizer_config:dict,
-        # hidden_size:int,
-        # init_type:str,
         clip_param: float,
         vf_coef: float,
         entropy_coef: float,
@@ -464,22 +472,24 @@ class PPOAgent:
         tau: float,
         l1_loss: bool,
         verbose: int,
-        checkpoint_interval: int = -1,
-        checkpoint_path: str = None,
-        resume_training: bool = False,
-        resume_epoch: bool = None,
+        checkpoint_interval:int,
+        checkpoint_dir: str,
+        log_interval: int,
+        resume_training: bool,
+        resume_epoch: int,
         report_func: callable = None,
-        # project:str="continuous-action-ppo",
         device: str = "cpu",
         wandb_log: bool = True,
         metrics_recorder: MetricsRecorder = None,
-        # seed:int=None,
-        **kwargs,
     ):
+        checkpoint_path = os.path.join(checkpoint_dir, project, env_name)
         if resume_training:
+            if verbose > 0:
+                print("Resuming training from checkpoint...", checkpoint_path, 'from latest' if resume_epoch <= 0 else f'from epoch {resume_epoch}')
             last_epoch = CheckpointManager.load_checkpoint(
-                policy, value, optimizer, checkpoint_path, epoch
+                policy, value, optimizer, checkpoint_path, None if resume_epoch <=0 else resume_epoch - 1
             )
+            last_epoch += 1
         else:
             last_epoch = 0
 
@@ -497,6 +507,7 @@ class PPOAgent:
             env=env,
             device=device,
             rollout_buffer=rollout_buffer,
+            normalizer=normalizer,
             state_scaler=state_scaler,
             reward_shaper=reward_shaper,
             reward_scaler=reward_scaler,
@@ -544,22 +555,24 @@ class PPOAgent:
                 metrics_recorder=metrics_recorder,
             )
             if checkpoint_interval > 0 and ((epoch + 1) % checkpoint_interval) == 0:
+                if verbose > 0:
+                    print("Saving checkpoint...", checkpoint_path)
                 CheckpointManager.save_checkpoint(
-                    self.policy, self.value, self.optimizer, epoch, checkpoint_path
+                    policy, value, optimizer, epoch, checkpoint_path
                 )
 
             # Average of last 10 episodes or all episodes if less than 10 episodes are available
-            average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
-            if len(episode_rewards) >= 20:
+            if len(episode_rewards) >= 20 and (epoch + 1) % log_interval == 0:
+                average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
                 if wandb_log:
                     WandBLogger.log_rewards(episode_rewards[-20:])
                 if metrics_recorder:
-                    self.metrics_recorder.record_rewards(episode_rewards[-20:])
+                    metrics_recorder.record_rewards(episode_rewards[-20:])
                 if report_func:
                     report_func(mean_reward=average_reward)  # Reporting the reward
 
-            if verbose > 0:
-                print(
+            if verbose > 0 and (epoch + 1) % log_interval == 0:
+                print("env", env_name,
                     "epoch",
                     epoch + 1,
                     "average reward",
@@ -590,6 +603,7 @@ class PPOAgent:
 
     def train(self, epochs):
         PPOAgent.train_with_epoch(
+            project=self.project,
             env=self.env,
             env_name=self.env_name,
             env_config=self.config["env_config"],
@@ -597,6 +611,7 @@ class PPOAgent:
             state_scaler=self.state_scaler,
             shape_reward=self.config["shape_reward"],
             reward_scaler=self.reward_scaler,
+            normalizer=self.normalizer,
             policy=self.policy,
             value=self.value,
             optimizer=self.optimizer,
@@ -617,7 +632,8 @@ class PPOAgent:
             l1_loss=self.config["l1_loss"],
             verbose=self.config["verbose"],
             checkpoint_interval=self.config["checkpoint_interval"],
-            checkpoint_path=self.checkpoint_path,
+            checkpoint_dir=self.config['checkpoint_dir'],
+            log_interval=self.config["log_interval"],
             resume_training=self.config["resume_training"],
             resume_epoch=self.config["resume_epoch"],
             report_func=self.config["report_func"],

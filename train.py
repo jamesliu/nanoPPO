@@ -4,20 +4,22 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 
 
 @click.command()
-@click.option("--project", default="continuous-action-ppo", help="Name of the project.")
+@click.option("--project", default="ppoagent", help="Name of the project.")
 @click.option(
     "--env_name",
-    default="Pendulum-v1",
-    type=click.Choice(["Pendulum-v1", "MountainCarContinuous-v0"]),
+    default="PointMass2D-v0",
+    type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]),
     help="Name of the environment.",
 )
-@click.option("--epochs", default=30, help="Number of training epochs.")
+@click.option("--epochs", default=100, help="Number of training epochs.")
 @click.option(
-    "--rescaling_rewards", is_flag=True, default=True, help="Flag to rescale rewards."
+    "--rescaling_rewards", is_flag=True, default=False, help="Flag to rescale rewards."
 )
-@click.option("--scale_states", default="standard", help="Type of state scaling.")
+@click.option("--scale_states", default="default", 
+              type=click.Choice(["default", "env", "standard", "minmax", "robust", "quantile"]),
+              help="Type of state scaling.")
 @click.option("--batch_size", default=64, help="Batch size for training.")
-@click.option("--sgd_iters", default=20, help="Number of SGD iterations.")
+@click.option("--sgd_iters", default=1, help="Number of SGD iterations.")
 @click.option("--gamma", default=0.99, help="Discount factor.")
 @click.option("--hidden_size", default=64, help="Hidden size for the neural network.")
 @click.option(
@@ -28,11 +30,10 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 )
 @click.option("--clip_param", default=0.2, help="Clipping parameter for PPO.")
 @click.option("--vf_coef", default=0.5, help="Value function coefficient.")
-@click.option("--entropy_coef", default=1e-3, help="Entropy coefficient.")
+@click.option("--entropy_coef", default=1e-2, help="Entropy coefficient.")
 @click.option(
-    "--max_grad_norm", default=0.9, help="Maximum gradient norm for clipping."
+    "--max_grad_norm", default=30, help="Maximum gradient norm for clipping."
 )
-@click.option("--rollout_buffer_size", default=2000, help="Size of the rollout buffer.")
 @click.option(
     "--wandb_log", is_flag=True, default=True, help="Flag to log results to wandb."
 )
@@ -41,11 +42,12 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 )
 @click.option("--verbose", default=2, help="Verbosity level.")
 @click.option("--checkpoint_interval", default=100, help="Checkpoint interval.")
-@click.option("--checkpoint_dir", default=".", help="Path to checkpoint.")
+@click.option("--checkpoint_dir", default="checkpoints", help="Path to checkpoint.")
+@click.option("--log_interval", default=10, help="Logging interval.")
 @click.option(
     "--resume_training", is_flag=True, default=False, help="Flag to resume training."
 )
-@click.option("--resume_epoch", default=None, help="Epoch to resume training from.")
+@click.option("--resume_epoch", default=0, type=int, help="Epoch to resume training from: <=0 for latest epoch.")
 @click.option("--verbose", default=2, help="Verbosity level.")
 # Add more configurations as needed
 
@@ -65,11 +67,11 @@ def cli(
     vf_coef,
     entropy_coef,
     max_grad_norm,
-    rollout_buffer_size,
     wandb_log,
     metrics_log,
     checkpoint_interval,
     checkpoint_dir,
+    log_interval,
     resume_training,
     resume_epoch,
     verbose,
@@ -88,7 +90,6 @@ def cli(
         "use_gae": False,
         "tau": 0.97,
         "l1_loss": False,
-        "rollout_buffer_size": rollout_buffer_size,
         "sgd_iters": sgd_iters,
         "hidden_size": hidden_size,
         "batch_size": batch_size,
@@ -102,6 +103,7 @@ def cli(
         "verbose": verbose,
         "checkpoint_interval": checkpoint_interval,
         "checkpoint_dir": checkpoint_dir,
+        "log_interval": log_interval,
         "resume_training": resume_training,
         "resume_epoch": resume_epoch,
         "report_func": None,
