@@ -176,12 +176,11 @@ def rollout_with_step(
         state, info = env.reset()
         if isinstance(state, dict):
             state = state["obs"]
-        if state_scaler is None:
-            scaled_state = state
-        else:
-            #scaled_state = state_scaler.scale_state(state)
+        if state_normalizer:
             state_normalizer.observe(state)
             scaled_state = state_normalizer.normalize(state)
+        else:
+            scaled_state = state_scaler.scale_state(state)
         done = False
         truncated = False
         accumulated_rewards = 0
@@ -595,14 +594,15 @@ def train(
     else:
         reward_scaler = None
         click.secho("No reward scaling", fg="red", err=True)
-
-    if scale_states is None:
-        state_scaler = None
-        click.secho("No state scaling", fg="red", err=True)
-    else:
+    
+    state_normalizer = None
+    state_scaler = None
+    if scale_states == 'default':
+        state_normalizer = Normalizer(env.observation_space.shape[0])
+    elif scale_states in ['env', 'standard', 'minmax', 'robust', 'quantile']:
         state_scaler = StateScaler(env, sample_size=10000, scale_type=scale_states)
-
-    state_normalizer = Normalizer(env.observation_space.shape[0])
+    else:
+        raise ValueError(f"State scaler {scale_states} not recognized.")
 
     if resume_training:
         last_epoch = load_checkpoint(
@@ -723,11 +723,11 @@ config = {
     "env_name": "MountainCarContinuous-v0",
     "env_config": None,
     "seed": None,
-    "epochs": 200,
+    "epochs": 500,
     "rescaling_rewards": False,
     "shape_reward": None,  # [None, SubClass of RewardReshaper]
-    "scale_states": "standard",  # [None, "env", "standard", "minmax", "robust", "quantile"]:
-    "init_type": "default",  # xavier, he
+    "scale_states": "default",  # ["default", "env", "standard", "minmax", "robust", "quantile"]:
+    "init_type": "default",  # ["default", "xavier", "he"]
     "use_gae":True, 
     "gamma": 0.99,
     "tau": 0.95,
@@ -777,45 +777,12 @@ def update_config(aconfig):
 
 def train_env(env_name):
     if env_name == "MountainCarContinuous-v0":
-        best_config = (
-            {}
-        )  # {'env_name': 'MountainCarContinuous-v0', 'policy_lr': 1.3854471971413998e-06, 'value_lr': 4.324566907389423e-05, 'weight_decay': 4.628061893014567e-05, 'scheduler': None, 'sgd_iters': 10, 'batch_size': 64, 'clip_param': 0.2190924577076417, 'max_grad_norm': 0.5806241298866155, 'vf_coef': 0.8005184316885099, 'entropy_coef': 6.504618115019088e-06, 'tau': 0.9020595524919125}
         best_config = {
             "env_name": "MountainCarContinuous-v0",
-            "epochs": 30,
-            "rescaling_rewards": True,
-            "shape_reward": TDRewardShaper,
-            "policy_lr": 2.2139290514335154e-04,
-            "value_lr": 6.717375374452914e-04,
-            "weight_decay": 2.5128866121352096e-06,
-            "scheduler": None,
-            "sgd_iters": 10,
-            "batch_size": 128,
-            "clip_param": 0.2622072783993743,
-            "max_grad_norm": 0.537370676793494,
-            "vf_coef": 0.5225264301194332,
-            "entropy_coef": 6.861142534298038e-05,
-            "tau": 0.9582092793934365,
         }
     elif env_name == "Pendulum-v1":
         # best_config = {'epochs':100}
-        best_config = {
-            "epochs": 30,
-            "env_name": "Pendulum-v1",
-            "policy_lr": 5.8281040558151076e-05,
-            "value_lr": 0.0001120576307122378,
-            "weight_decay": 0.0008145726123243288,
-            "sgd_iters": 2,
-            "use_gae": False,
-            "init_type": "he",
-            "batch_size": 512,
-            "clip_param": 0.21698505583910346,
-            "max_grad_norm": 0.5552556781050277,
-            "vf_coef": 1.90491891614271956,
-            "entropy_coef": 3.015475350516561e-05,
-            "tau": 0.9552356381259465,
-        }
-        best_config = {'project': 'tune_continuous_action_ppo', 'seed': 684, 'env_name': 'Pendulum-v1', 'policy_lr': 0.004045246630390333, 'value_lr': 9.385638386366823e-05, 'weight_decay': 0.00014787566718110943, 'sgd_iters': 5, 'scale_states': 'robust', 'use_gae': False, 'init_type': 'he', 'batch_size': 256, 'clip_param': 0.4949315363015096, 'max_grad_norm': 0.09811332067771494, 'vf_coef': 1.9972970256935074, 'entropy_coef': 0.0009703720514156818, 'tau': 0.9708373816559092}
+        best_config = {}
     elif env_name == "LunarLanderContinuous-v2":
         pass
     elif env_name == "BipedalWalker-v3":
@@ -825,7 +792,7 @@ def train_env(env_name):
             "env_name": "PointMass1D-v0",
         }
     elif env_name == "PointMass2D-v0":
-        best_config =  {'project': 'continuous_action_ppo', 'epochs':1000, 'env_name': 'PointMass2D-v0',  'weight_decay': 0.000197853572415373}
+        best_config = {'project': 'tune_continuous_action_ppo', 'env_name': 'PointMass2D-v0', 'policy_lr': 6.965606472889233e-05, 'value_lr': 5.337021407693641e-05, 'weight_decay': 0.005615599464308048, 'sgd_iters': 2, 'use_gae': True, 'batch_size': 256, 'vf_coef': 0.4407130713151379, 'entropy_coef': 4.796586082455764e-05}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)

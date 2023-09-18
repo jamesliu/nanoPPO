@@ -12,7 +12,7 @@ from nanoppo.environment_manager import EnvironmentManager
 from nanoppo.network_manager import NetworkManager
 from nanoppo.checkpoint_manager import CheckpointManager
 from nanoppo.wandb_logger import WandBLogger
-from nanoppo.network import PolicyNetwork, ValueNetwork
+from nanoppo.policy.network import PolicyNetwork, ValueNetwork
 from nanoppo.rollout_buffer import RolloutBuffer
 from nanoppo.reward_scaler import RewardScaler
 from nanoppo.reward_shaper import RewardShaper, TDRewardShaper
@@ -55,7 +55,7 @@ class PPOAgent:
             self.scheduler,
         ) = self.network_manager.setup_networks()
 
-        self.rollout_buffer = RolloutBuffer(self.config["rollout_buffer_size"])
+        self.rollout_buffer = RolloutBuffer(self.config["batch_size"])
         if self.config["rescaling_rewards"]:
             self.reward_scaler = RewardScaler()
         else:
@@ -464,7 +464,6 @@ class PPOAgent:
         tau: float,
         l1_loss: bool,
         verbose: int,
-        rollout_buffer_size: int,
         checkpoint_interval: int = -1,
         checkpoint_path: str = None,
         resume_training: bool = False,
@@ -516,7 +515,7 @@ class PPOAgent:
             policy.eval()
             value.eval()
             rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
-            for r in range(rollout_buffer_size):
+            for r in range(batch_size):
                 total_rewards, steps, rollout_steps = next(rollout)
                 if total_rewards is not None:
                     episode_steps.append(steps)
@@ -609,7 +608,7 @@ class PPOAgent:
             # optimizer_config=self.optimizer_config,
             # hidden_size=self.config["hidden_size"],
             # init_type=self.config["init_type"],
-            clip_param=self.config["clip_param"],
+            clip_param=self.config.get("clip_param", 0.2),
             vf_coef=self.config["vf_coef"],
             entropy_coef=self.config["entropy_coef"],
             max_grad_norm=self.config["max_grad_norm"],
@@ -617,7 +616,6 @@ class PPOAgent:
             tau=self.config["tau"],
             l1_loss=self.config["l1_loss"],
             verbose=self.config["verbose"],
-            rollout_buffer_size=self.config["rollout_buffer_size"],
             checkpoint_interval=self.config["checkpoint_interval"],
             checkpoint_path=self.checkpoint_path,
             resume_training=self.config["resume_training"],
