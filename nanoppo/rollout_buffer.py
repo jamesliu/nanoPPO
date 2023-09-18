@@ -16,12 +16,12 @@ class RolloutBuffer:
         states, actions, log_probs, rewards, next_states, dones = zip(
             *random.sample(self.buffer, batch_size)
         )
-        states_t = torch.tensor(np.array(states), device=device)
-        actions_t = torch.tensor(np.array(actions), device=device)
-        log_probs_t = torch.tensor(np.array(log_probs), device=device)
-        rewards_t = torch.tensor(np.array(rewards), device=device)
-        next_states_t = torch.tensor(np.array(next_states), device=device)
-        dones_t = torch.tensor(np.array(dones), device=device)
+        states_t = torch.tensor(np.array(states, dtype=np.float32), device=device)
+        actions_t = torch.tensor(np.array(actions, dtype=np.float32), device=device)
+        log_probs_t = torch.tensor(np.array(log_probs, dtype=np.float32), device=device)
+        rewards_t = torch.tensor(np.array(rewards, dtype=np.float32), device=device)
+        next_states_t = torch.tensor(np.array(next_states, dtype=np.float32), device=device)
+        dones_t = torch.tensor(np.array(dones, dtype=np.float32), device=device)
         return states_t, actions_t, log_probs_t, rewards_t, next_states_t, dones_t
 
     def __len__(self):
