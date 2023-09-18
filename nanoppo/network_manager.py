@@ -33,14 +33,11 @@ class NetworkManager:
                 action_low=self.env.action_space.low,
                 action_high=self.env.action_space.high
             ).to(self.device)
-            value = policy.value_layer
-            optimizer = optim.Adam(
-                policy.parameters(),
-                lr=self.optimizer_config["policy_lr"],
-                betas=(self.optimizer_config["beta1"], self.optimizer_config["beta2"]),
-                eps=self.optimizer_config["epsilon"],
-                weight_decay=self.optimizer_config["weight_decay"],
-            )
+            
+            # Separate the parameters of the actor and critic networks
+            actor_params = list(policy.action_mu.parameters()) + list(self.policy.action_log_std.parameters())
+            critic_params = list(policy.value_layer.parameters())
+        
         else:
             policy = PolicyNetwork(
                 observation_space.shape[0], action_dim, init_type=self.init_type
@@ -50,19 +47,21 @@ class NetworkManager:
                 hidden_size=self.hidden_size,
                 init_type=self.init_type,
             ).to(self.device)
+            actor_params = list(policy.parameters())
+            critic_params = list(value.parameters())
     
-            policy_lr = self.optimizer_config["policy_lr"]
-            value_lr = self.optimizer_config["value_lr"]
+        policy_lr = self.optimizer_config["policy_lr"]
+        value_lr = self.optimizer_config["value_lr"]
     
-            optimizer = optim.Adam(
-                [
-                    {"params": policy.parameters(), "lr": policy_lr},
-                    {"params": value.parameters(), "lr": value_lr},
-                ],
-                betas=(self.optimizer_config["beta1"], self.optimizer_config["beta2"]),
-                eps=self.optimizer_config["epsilon"],
-                weight_decay=self.optimizer_config["weight_decay"],
-            )
+        optimizer = optim.Adam(
+            [
+                {"params": actor_params, "lr": policy_lr},
+                {"params": critic_params, "lr": value_lr},
+            ],
+            betas=(self.optimizer_config["beta1"], self.optimizer_config["beta2"]),
+            eps=self.optimizer_config["epsilon"],
+            weight_decay=self.optimizer_config["weight_decay"],
+        )
     
         if self.optimizer_config["scheduler"] is None:
             scheduler = None

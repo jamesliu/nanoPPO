@@ -21,13 +21,14 @@ action_dim = env.action_space.shape[0]
 print('state_dim', state_dim)
 print('action_dim', action_dim)
 n_latent_var = 128
-lr = 0.0005
+policy_lr = 0.0005
+value_lr = 0.0005
 betas = (0.9, 0.999)
 gamma = 0.99
 tau = 0.95
 K_epochs = 4
 eps_clip = 0.2
-max_timesteps = 1000
+max_timesteps = 2000
 update_timestep = 200
 log_interval = 20
 max_episodes = 1000  # Modify this value based on how many episodes you want to train
@@ -82,9 +83,9 @@ class PPOMemory:
 # Initialize a normalizer with the dimensionality of the state
 state_normalizer = Normalizer(state_dim)
 reward_normalizer = Normalizer(1)
-ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer, 
+ppo = PPOAgent(state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip, state_normalizer, 
                action_low=env.action_space.low, action_high=env.action_space.high)
-print(lr, betas)
+print(policy_lr, value_lr, betas)
 
 # Load the best weights
 if os.path.exists(model_file):

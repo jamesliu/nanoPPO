@@ -9,7 +9,7 @@ from nanoppo.policy.actor_critic import ActorCritic
 
 # PPO Agent
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer, action_low, action_high):
+    def __init__(self, state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip, state_normalizer, action_low, action_high):
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
@@ -21,7 +21,16 @@ class PPOAgent:
         self.policy_old = ActorCritic(state_dim, action_dim, n_latent_var, action_low, action_high).float()
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
+        # Separate the parameters of the actor and critic networks
+        actor_params = list(self.policy.action_mu.parameters()) + list(self.policy.action_log_std.parameters())
+        critic_params = list(self.policy.value_layer.parameters())
+        
+        # Create an optimizer with different learning rates for the actor and critic
+        self.optimizer = torch.optim.Adam([
+            {'params': actor_params, 'lr': policy_lr},
+            {'params': critic_params, 'lr': value_lr}
+        ], betas=betas)
+
         self.mse_loss = nn.MSELoss()
 
     def update(self, states, actions, returns, next_states, dones):
@@ -44,7 +53,7 @@ class PPOAgent:
             policy_loss = -torch.min(surr1, surr2).mean()
     
             # Value loss
-            value_loss = 0.5 * self.mse_loss(state_values, returns)
+            value_loss = 0.1 * self.mse_loss(state_values, returns)
     
             # Entropy (for exploration)
             entropy_loss = -0.01 * logprobs.mean()
