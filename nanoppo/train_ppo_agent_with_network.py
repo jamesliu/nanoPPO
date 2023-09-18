@@ -7,6 +7,7 @@ from nanoppo.ppo_utils import compute_gae
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.envs.point_mass1d import PointMass1DEnv
 from nanoppo.environment_manager import EnvironmentManager
+from nanoppo.ppo_utils import get_grad_norm
 
 # Setting up the environment and the agent
 #env = PointMass1DEnv()
@@ -133,6 +134,7 @@ for episode in range(start_episode, max_episodes + start_episode):
             next_value = ppo.policy.get_value(next_state).detach().item()
             values = [ppo.policy.get_value(torch.FloatTensor(state)).item() for state in ppo_memory.states]
             returns = compute_gae(next_value, ppo_memory.rewards, ppo_memory.is_terminals, values, gamma=gamma, tau=tau)
+            breakpoint()
             torch_returns = torch.tensor(returns, dtype=torch.float32)
 
             states, actions, log_probs, next_states, rewards, dones = ppo_memory.get()
@@ -162,6 +164,11 @@ for episode in range(start_episode, max_episodes + start_episode):
             ppo.save(model_file)
             print("Saved best weights!", model_file, metrics_file)
 
+        action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
+        action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
+        value_grad_norm = get_grad_norm(ppo.policy.value_layer.parameters())
+        print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
+              'value_grad_norm', round(value_grad_norm,2))
 # Load the best weights
 ppo.load(model_file)
 metrics = pickle.load(open(metrics_file, 'rb'))

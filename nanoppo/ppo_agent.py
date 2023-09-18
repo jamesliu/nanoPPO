@@ -19,7 +19,7 @@ from nanoppo.reward_shaper import RewardShaper, TDRewardShaper
 from nanoppo.normalizer import Normalizer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
-from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae
+from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae, get_grad_norm
 
 import warnings
 
@@ -326,6 +326,7 @@ class PPOAgent:
                     returns = compute_gae(
                         next_value, batch_rewards, masks, values, gamma, tau
                     )
+                    breakpoint()
                     advs = [ret - val for ret, val in zip(returns, values)]
                 else:
                     raise NotImplementedError
@@ -383,6 +384,7 @@ class PPOAgent:
             optimizer.zero_grad()
             total_loss.backward()
 
+            """
             # Clip the gradients to avoid exploding gradients
             policy_grad_norm = nn.utils.clip_grad_norm_(
                 policy.parameters(), max_grad_norm
@@ -390,6 +392,10 @@ class PPOAgent:
             value_grad_norm = nn.utils.clip_grad_norm_(
                 value.parameters(), max_grad_norm
             )
+            """
+            action_mu_grad_norm = get_grad_norm(policy.action_mu.parameters())
+            action_log_std_grad_norm = get_grad_norm(policy.action_log_std.parameters())
+            value_grad_norm = get_grad_norm(value.parameters())
 
             # compute activation norm
             # remove the forward hooks
@@ -419,7 +425,8 @@ class PPOAgent:
                 # wandb.log({"Gradients/PolicyNet": wandb.Histogram(policy.fc1.weight.grad.detach().cpu().numpy())})
                 WandBLogger.log(
                     {
-                        "Policy/Gradient_Norm": policy_grad_norm,
+                        "Policy/Mu_Gradient_Norm": action_mu_grad_norm,
+                        "Policy/Log_Std_Gradient_Norm": action_log_std_grad_norm,
                         "Value/Gradient_Norm": value_grad_norm,
                         # "Value/Activation_Norm": activation_norm
                     }
@@ -554,7 +561,7 @@ class PPOAgent:
                 clip_param,
                 vf_coef,
                 entropy_coef,
-                max_grad_norm,
+                max_grad_norm=max_grad_norm,
                 use_gae=use_gae,
                 tau=tau,
                 l1_loss=l1_loss,
@@ -597,6 +604,12 @@ class PPOAgent:
                     "rollout steps",
                     rollout_steps,
                 )
+
+                action_mu_grad_norm = get_grad_norm(policy.action_mu.parameters())
+                action_log_std_grad_norm = get_grad_norm(policy.action_log_std.parameters())
+                value_grad_norm = get_grad_norm(value.parameters())
+                print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
+                      'value_grad_norm', round(value_grad_norm,2))
         end = time()
         print("Training time: ", round((end - start) / 60, 2), "minutes")
         if metrics_recorder:

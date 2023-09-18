@@ -21,6 +21,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 @click.option("--batch_size", default=64, help="Batch size for training.")
 @click.option("--sgd_iters", default=4, help="Number of SGD iterations.")
 @click.option("--use_gae/--no_use_gae", is_flag=True, default=True, help="Flag to use GAE.")
+@click.option("--l1_loss", is_flag=True, default=False, help="Flag to use L1 loss for value/critic network.")
 @click.option("--gamma", default=0.99, help="Discount factor.")
 @click.option("--hidden_size", default=64, help="Hidden size for the neural network.")
 @click.option(
@@ -33,7 +34,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 @click.option("--vf_coef", default=0.5, help="Value function coefficient.")
 @click.option("--entropy_coef", default=1e-2, help="Entropy coefficient.")
 @click.option(
-    "--max_grad_norm", default=2, help="Maximum gradient norm for clipping."
+    "--max_grad_norm", default=1000, help="Maximum gradient norm for clipping."
 )
 @click.option(
     "--wandb_log", is_flag=True, default=True, help="Flag to log results to wandb."
@@ -62,6 +63,7 @@ def cli(
     batch_size,
     sgd_iters,
     use_gae,
+    l1_loss,
     gamma,
     hidden_size,
     init_type,
@@ -93,9 +95,9 @@ def cli(
         "shape_reward": None,  # [None, SubClass of RewardReshaper]
         "scale_states": scale_states,  # [None, "env", "standard", "minmax", "robust", "quantile"]:
         "init_type": init_type,  # xavier, he
-        "use_gae": False,
+        "use_gae": use_gae,
         "tau": 0.97,
-        "l1_loss": False,
+        "l1_loss": l1_loss,
         "sgd_iters": sgd_iters,
         "hidden_size": hidden_size,
         "batch_size": batch_size,

@@ -52,3 +52,20 @@ def compute_returns_and_advantages_without_gae(rewards, states, next_states, don
             advs.insert(0, delta)
 
     return returns, advs
+
+def get_grad_norm(parameters):
+    """
+    Compute the 2-norm of gradients for the provided parameters.
+    
+    Args:
+    - parameters (Iterable[torch.Tensor]): Network parameters.
+    
+    Returns:
+    - float: Gradient norm.
+    """
+    grad_norm = 0.0
+    for param in parameters:
+        if param.grad is not None:
+            grad_norm += (param.grad.data ** 2).sum()
+    grad_norm = grad_norm.sqrt().item()
+    return grad_norm
