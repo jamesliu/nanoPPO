@@ -13,7 +13,7 @@ class Normalizer:
         self.n = np.zeros(dim)
         self.mean = np.zeros(dim)
         self.mean_diff = np.zeros(dim)
-        self.var = np.zeros(dim)
+        self.variance = np.zeros(dim)
 
     def observe(self, x):
         """Update statistics"""
@@ -21,28 +21,32 @@ class Normalizer:
         last_mean = self.mean.copy()
         self.mean += (x - self.mean) / self.n
         self.mean_diff += (x - last_mean) * (x - self.mean)
-        self.var = (self.mean_diff / self.n).clip(min=1e-2)
+        self.variance = (self.mean_diff / self.n).clip(min=1e-2)
 
     def normalize(self, inputs):
         """Normalize input using running mean and variance"""
-        obs_std = np.sqrt(self.var)
+        obs_std = np.sqrt(self.variance)
         return (inputs - self.mean) / obs_std
 
     def get_state(self):
         return {
+            'n': self.n,
             'mean': self.mean,
+            'mean_diff': self.mean_diff,
             'variance': self.variance,
-            'n': self.n
         }
     
     def set_state(self, state):
-        self.mean = state['mean']
-        self.variance = state['variance']
         self.n = state['n']
+        self.mean = state['mean']
+        self.mean_diff = state['mean_diff']
+        self.variance = state['variance']
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, n_latent_var):
+    def __init__(self, state_dim, action_dim, n_latent_var, action_low, action_high):
         super(ActorCritic, self).__init__()
+        self.action_low = action_low
+        self.action_high = action_high
 
         # Actor: outputs mean and log standard deviation
         self.action_mu = nn.Sequential(
@@ -81,6 +85,10 @@ class ActorCritic(nn.Module):
         dist = torch.distributions.Normal(mu, std)
         if action is None:
             action = dist.sample()
+            # Assuming env.action_space.low and env.action_space.high are numpy arrays
+            action_low_tensor = torch.tensor(self.action_low, dtype=torch.float32)
+            action_high_tensor = torch.tensor(self.action_high, dtype=torch.float32)
+            action = torch.clamp(action, action_low_tensor, action_high_tensor)
 
         if compute_logprobs:
             logprobs = dist.log_prob(action).sum(axis=-1)
@@ -104,14 +112,16 @@ class ActorCritic(nn.Module):
 
 # PPO Agent
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer):
+    def __init__(self, state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer, action_low, action_high):
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         self.state_normalizer = state_normalizer
+        self.action_low = action_low
+        self.action_high = action_high
 
-        self.policy = ActorCritic(state_dim, action_dim, n_latent_var).float()
-        self.policy_old = ActorCritic(state_dim, action_dim, n_latent_var).float()
+        self.policy = ActorCritic(state_dim, action_dim, n_latent_var, action_low, action_high).float()
+        self.policy_old = ActorCritic(state_dim, action_dim, n_latent_var, action_low, action_high).float()
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)

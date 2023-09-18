@@ -6,8 +6,8 @@ from nanoppo.envs.point_mass2d import PointMass2DEnv
 from nanoppo.envs.point_mass1d import PointMass1DEnv
 
 # Setting up the environment and the agent
+env = PointMass1DEnv()
 #env = PointMass2DEnv()
-env = PointMass2DEnv()
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 print('state_dim', state_dim)
@@ -23,6 +23,10 @@ update_timestep = 200
 log_interval = 20
 max_episodes = 1000  # Modify this value based on how many episodes you want to train
 
+env_name = env.__class__.__name__
+print(env_name)
+model_file = f"{env_name}_ppo.pth"
+metrics_file = f"{env_name}_metrics.pkl"
 
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     values = values + [next_value]
@@ -67,15 +71,17 @@ class PPOMemory:
 
 # Initialize a normalizer with the dimensionality of the state
 state_normalizer = Normalizer(state_dim)
-ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer)
+reward_normalizer = Normalizer(1)
+ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip, state_normalizer, 
+               action_low=env.action_space.low, action_high=env.action_space.high)
 print(lr, betas)
 
 # Load the best weights
-if os.path.exists("best_weights.pth"):
-    metrics = pickle.load(open('metrics.pkl', 'rb'))
+if os.path.exists(model_file):
+    metrics = pickle.load(open(metrics_file, 'rb'))
     best_reward = metrics['best_reward']
     start_episode = metrics['episode'] + 1
-    ppo.load("best_weights.pth")
+    ppo.load(model_file)
     print("Loaded best weights!")
 else:
     best_reward = float('-inf')
@@ -99,7 +105,8 @@ for episode in range(start_episode, max_episodes + start_episode):
     state = torch.FloatTensor(state)
     for t in range(max_timesteps):
         action, log_prob = ppo.policy.act(state)
-        next_state, reward, done, truncated, _ = env.step(action.numpy())
+        action_np = action.detach().numpy()
+        next_state, reward, done, truncated, _ = env.step(action_np)
         state_normalizer.observe(next_state)
         next_state = state_normalizer.normalize(next_state)
 
@@ -141,11 +148,14 @@ for episode in range(start_episode, max_episodes + start_episode):
             print('avg_reward', avg_reward, '> best_reward', best_reward)
             best_reward = avg_reward
             metrics = {'best_reward': best_reward, 'episode':episode}
-            pickle.dump(metrics, open('metrics.pkl', 'wb'))
-            ppo.save("best_weights.pth")
-            print("Saved best weights!")
+            pickle.dump(metrics, open(metrics_file, 'wb'))
+            ppo.save(model_file)
+            print("Saved best weights!", model_file, metrics_file)
 
 # Load the best weights
-ppo.load("best_weights.pth")
+ppo.load(model_file)
+metrics = pickle.load(open(metrics_file, 'rb'))
 print("Loaded best weights!")
-print("best_reward", best_reward)
+best_reward = metrics['best_reward']
+episode = metrics['episode']
+print("best_reward", best_reward, 'episode', episode)
