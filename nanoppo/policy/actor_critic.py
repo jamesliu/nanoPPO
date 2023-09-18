@@ -33,14 +33,17 @@ class ActorCritic(nn.Module):
             nn.Linear(n_latent_var, 1)
         )
 
-    def forward(self):
-        raise NotImplementedError
+    def forward(self, state):
+        mu = self.action_mu(state)
+        log_std = self.action_log_std(state)
+        std = log_std.exp()
+        dist = torch.distributions.Normal(mu, std)
+        return dist
 
     def act(self, state, action=None, compute_logprobs=True):
         mu = self.action_mu(state)
         log_std = self.action_log_std(state)
         std = log_std.exp()
-
         dist = torch.distributions.Normal(mu, std)
         if action is None:
             action = dist.sample()

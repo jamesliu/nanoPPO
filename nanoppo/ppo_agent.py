@@ -164,7 +164,7 @@ class PPOAgent:
             elif state_scaler:
                 scaled_state = state_scaler.scale_state(state)
             else:
-                scaled_state = state
+                raise ValueError("No state scaler or normalizer is provided")
             done = False
             truncated = False
             accumulated_rewards = 0
@@ -195,7 +195,7 @@ class PPOAgent:
                 elif state_scaler:
                     scaled_next_state = state_scaler.scale_state(next_state)
                 else:
-                    scaled_next_state = next_state
+                    raise ValueError("No state scaler or normalizer is provided")
 
                 scaled_state = scaled_next_state
                 accumulated_rewards += reward
@@ -277,13 +277,13 @@ class PPOAgent:
         return value_loss
 
     @staticmethod
-    def train_network(
+    def update(
         iter_num,
         policy,
         value,
         optimizer,
         scheduler,
-        rollout_buffer,
+        rollout_buffer: RolloutBuffer,
         device,
         batch_size,
         sgd_iters,
@@ -310,7 +310,7 @@ class PPOAgent:
                 batch_rewards,
                 batch_next_states,
                 batch_dones,
-            ) = rollout_buffer.sample(batch_size, device=device)
+            ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
 
             # Compute Advantage and Returns
             returns = []
@@ -328,6 +328,7 @@ class PPOAgent:
                     )
                     advs = [ret - val for ret, val in zip(returns, values)]
                 else:
+                    raise NotImplementedError
                     returns, advs = compute_returns_and_advantages_without_gae(
                         batch_rewards,
                         batch_states,
@@ -444,6 +445,8 @@ class PPOAgent:
                 metrics_recorder.record_learning(lrs)
 
             iter_num += 1
+
+        rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
         return (
             policy,
             value,
@@ -529,7 +532,6 @@ class PPOAgent:
         for epoch in PPOAgent.get_epoch_iterator(last_epoch, epochs, verbose):
             policy.eval()
             value.eval()
-            rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
             
             for r in range(batch_size):
                 total_rewards, steps, rollout_steps = next(rollout)
@@ -538,7 +540,7 @@ class PPOAgent:
                     episode_rewards.append(total_rewards)
             policy.train()
             value.train()
-            _, _, train_iters = PPOAgent.train_network(
+            _, _, train_iters = PPOAgent.update(
                 train_iters,
                 policy,
                 value,
