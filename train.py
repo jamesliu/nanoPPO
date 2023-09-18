@@ -12,6 +12,8 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
     help="Name of the environment.",
 )
 @click.option("--epochs", default=500, help="Number of training epochs.")
+@click.option("--policy_lr", default=0.0005, help="Learning rate for policy network.")
+@click.option("--value_lr", default=0.0005, help="Learning rate for value network.")
 @click.option(
     "--rescaling_rewards", is_flag=True, default=False, help="Flag to rescale rewards."
 )
@@ -58,6 +60,8 @@ def cli(
     project,
     env_name,
     epochs,
+    policy_lr,
+    value_lr,
     rescaling_rewards,
     scale_states,
     batch_size,
@@ -117,8 +121,8 @@ def cli(
         "report_func": None,
     }
     optimizer_config = {
-        "policy_lr": 3e-4,
-        "value_lr": 3e-4,
+        "policy_lr": policy_lr,
+        "value_lr": value_lr,
         "beta1": 0.9,
         "beta2": 0.999,
         "epsilon": 1e-8,

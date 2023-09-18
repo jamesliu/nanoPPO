@@ -133,10 +133,10 @@ class PPOAgent:
         #    action_min, action_max
         #)  # Clip the action to the valid range of the action space
         return (
-            action.cpu().detach(),
-            log_prob.cpu().detach(),
-            action_mean.cpu().detach(),
-            action_std.cpu().detach(),
+            action.cpu().detach().numpy(),
+            log_prob.cpu().detach().numpy(),
+            action_mean.cpu().detach().numpy(),
+            action_std.cpu().detach().numpy(),
         )
 
     @staticmethod
@@ -182,8 +182,6 @@ class PPOAgent:
                         action_mean, action_std
                     )
 
-                action = action.numpy()
-                log_prob = log_prob.numpy()
 
                 next_state, reward, done, truncated, info = env.step(action)
 
@@ -203,6 +201,7 @@ class PPOAgent:
                 if reward_shaper is None:
                     reshaped_reward = reward
                 else:
+                    raise NotImplementedError
                     reshaped_reward = reward_shaper.reshape(
                         [reward], [state], [next_state]
                     )[0]
@@ -211,14 +210,15 @@ class PPOAgent:
                     scaled_reward = reshaped_reward
                     # click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
                 else:
+                    raise NotImplementedError
                     scaled_reward = reward_scaler.scale_rewards([reshaped_reward])[0]
                 rollout_buffer.push(
-                    scaled_state,
-                    action.squeeze(),
-                    log_prob,
-                    scaled_reward,
-                    scaled_next_state,
-                    done,
+                    state=scaled_state,
+                    action=action.squeeze(),
+                    log_prob=log_prob,
+                    reward=scaled_reward,
+                    next_state=scaled_next_state,
+                    done=done,
                 )
                 total_steps += 1
                 steps += 1
@@ -326,7 +326,6 @@ class PPOAgent:
                     returns = compute_gae(
                         next_value, batch_rewards, masks, values, gamma, tau
                     )
-                    breakpoint()
                     advs = [ret - val for ret, val in zip(returns, values)]
                 else:
                     raise NotImplementedError

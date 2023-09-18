@@ -133,8 +133,8 @@ for episode in range(start_episode, max_episodes + start_episode):
             next_state = torch.FloatTensor(next_state)
             next_value = ppo.policy.get_value(next_state).detach().item()
             values = [ppo.policy.get_value(torch.FloatTensor(state)).item() for state in ppo_memory.states]
-            returns = compute_gae(next_value, ppo_memory.rewards, ppo_memory.is_terminals, values, gamma=gamma, tau=tau)
-            breakpoint()
+            masks = [1 - terminal.item() for terminal in ppo_memory.is_terminals]
+            returns = compute_gae(next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau)
             torch_returns = torch.tensor(returns, dtype=torch.float32)
 
             states, actions, log_probs, next_states, rewards, dones = ppo_memory.get()
