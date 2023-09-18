@@ -24,7 +24,7 @@ from nanoppo.reward_shaper import (
 from nanoppo.rollout_buffer import RolloutBuffer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
-from nanoppo.network import PolicyNetwork, ValueNetwork
+from nanoppo.policy.network import PolicyNetwork, ValueNetwork
 from nanoppo.random_utils import set_seed
 from nanoppo.envs.point_mass1d import PointMass1DEnv 
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
@@ -357,7 +357,7 @@ def train_networks(
             batch_rewards,
             batch_next_states,
             batch_dones,
-        ) = rollout_buffer.sample(batch_size, device=device)
+        ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
 
         # Compute Advantage and Returns
         returns = []

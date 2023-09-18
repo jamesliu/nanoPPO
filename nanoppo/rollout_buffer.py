@@ -12,10 +12,15 @@ class RolloutBuffer:
     def push(self, state, action, log_prob, reward, next_state, done):
         self.buffer.append((state, action, log_prob, reward, next_state, done))
 
-    def sample(self, batch_size, device):
-        states, actions, log_probs, rewards, next_states, dones = zip(
-            *random.sample(self.buffer, batch_size)
-        )
+    def sample(self, batch_size, device, randomize=True):
+        if randomize:
+            states, actions, log_probs, rewards, next_states, dones = zip(
+                *random.sample(self.buffer, batch_size)
+            )
+        else:
+            states, actions, log_probs, rewards, next_states, dones = zip(
+                *list(self.buffer)[-batch_size:]
+            )
         states_t = torch.tensor(np.array(states, dtype=np.float32), device=device)
         actions_t = torch.tensor(np.array(actions, dtype=np.float32), device=device)
         log_probs_t = torch.tensor(np.array(log_probs, dtype=np.float32), device=device)
