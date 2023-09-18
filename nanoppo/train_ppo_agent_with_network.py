@@ -21,7 +21,7 @@ eps_clip = 0.2
 max_timesteps = 200
 update_timestep = 200
 log_interval = 20
-max_episodes = 300  # Modify this value based on how many episodes you want to train
+max_episodes = 1000  # Modify this value based on how many episodes you want to train
 
 
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):

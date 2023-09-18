@@ -19,18 +19,6 @@ def init_weights(m, init_type="default"):
             raise ValueError(f"Initialization type {init_type} not recognized.")
         nn.init.zeros_(m.bias)
 
-# Define the weight initialization function
-def init_weights(m, init_type="he"):
-    if isinstance(m, nn.Linear):
-        if init_type == "he":
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-        elif init_type == "xavier":
-            nn.init.xavier_normal_(m.weight)
-        else:
-            raise ValueError(f"Initialization type {init_type} not recognized.")
-        nn.init.zeros_(m.bias)
-
-
 class PolicyNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, n_latent_var, init_type="he"):
         super(PolicyNetwork, self).__init__()
