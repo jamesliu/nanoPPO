@@ -249,7 +249,7 @@ def rollout_with_step(
             if done or truncated:
                 total_rewards = accumulated_rewards
                 accumulated_rewards = 0
-                if debug:
+                if debug and total_steps % 1000 == 0:
                     print(
                         "total steps",
                         total_steps,
@@ -525,7 +525,7 @@ def train_networks(
 
         iter_num += 1
         
-        if verbose > 1 and iter_num % 100 == 0:
+        if verbose > 1 and iter_num % 1000 == 0:
             print('iter', iter_num, 'sgd iter', sgd_iter, 'loss', total_loss.item(), 'policy loss', policy_loss.item(), 'entropy loss', entropy_loss.item(), 'value loss', value_loss.item(), 'policy grad norm', policy_grad_norm, 'value grad norm', value_grad_norm, 'policy lr', policy_lr, 'value lr', value_lr, 'policy param magnitude', policy_param_magnitude, 'value param magnitude', value_param_magnitude, 'policy gradient magnitude', policy_gradient_magnitude, 'value gradient magnitude', value_gradient_magnitude)
     return (
         policy,
@@ -687,7 +687,7 @@ def train(
             if report_func:
                 report_func(mean_reward=average_reward)  # Reporting the reward
 
-        if verbose > 0:
+        if verbose > 0 and (epoch + 1) % 10 == 0:
             print(
                 "epoch",
                 epoch + 1,
@@ -825,7 +825,7 @@ def train_env(env_name):
             "env_name": "PointMass1D-v0",
         }
     elif env_name == "PointMass2D-v0":
-        best_config =  {'project': 'continuous_action_ppo', 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'use_gae': True, 'batch_size': 128}
+        best_config =  {'project': 'continuous_action_ppo','epchs':1000, 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-04, 'value_lr': 9.105973247901589e-04, 'weight_decay': 0.000197853572415373, 'sgd_iters': 1, 'use_gae': True, 'batch_size': 128}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)

@@ -6,10 +6,14 @@ from nanoppo.normalizer import Normalizer
 from nanoppo.ppo_utils import compute_gae
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.envs.point_mass1d import PointMass1DEnv
+from nanoppo.environment_manager import EnvironmentManager
 
 # Setting up the environment and the agent
 #env = PointMass1DEnv()
-env = PointMass2DEnv()
+#env = PointMass2DEnv()
+env_name = "MountainCarContinuous-v0"
+env = EnvironmentManager(env_name).setup_env()
+
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 print('state_dim', state_dim)
@@ -21,13 +25,12 @@ gamma = 0.99
 tau = 0.95
 K_epochs = 4
 eps_clip = 0.2
-max_timesteps = 200
+max_timesteps = 1000
 update_timestep = 200
 log_interval = 20
 max_episodes = 1000  # Modify this value based on how many episodes you want to train
 
-env_name = env.__class__.__name__
-print(env_name)
+print('env', env_name)
 model_file = f"{env_name}_ppo.pth"
 metrics_file = f"{env_name}_metrics.pkl"
 
@@ -146,8 +149,8 @@ for episode in range(start_episode, max_episodes + start_episode):
     if episode % log_interval == 0:
         sample_length = len(avg_length_list)
         avg_length = int(sum(avg_length_list) / sample_length)
-        avg_reward = int(sum(cumulative_reward_list) / sample_length)
-        print('Episode {} \t sample length:{} avg length: {} \t reward: {}'.format(episode, sample_length, avg_length, avg_reward))
+        avg_reward = float(sum(cumulative_reward_list) / sample_length)
+        print('Episode {} \t sample length:{} avg length: {} \t avg reward: {}'.format(episode, sample_length, avg_length, avg_reward))
         avg_length_list = []
         cumulative_reward_list = []  # Reset cumulative reward after logging
         if avg_reward > best_reward:
