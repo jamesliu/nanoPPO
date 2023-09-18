@@ -292,7 +292,6 @@ def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef
 
 def compute_value_loss(value, states, returns, l1_loss):
     # Compute value loss
-    breakpoint()
     v_pred = value(states).squeeze()
     v_target = returns.squeeze()
     value_loss = (
@@ -373,7 +372,6 @@ def train_networks(
                 returns = compute_gae(
                     next_value, batch_rewards, masks, values, gamma, tau
                 )
-                breakpoint()
                 advs = [ret - val for ret, val in zip(returns, values)]
             else:
                 raise NotImplementedError
@@ -527,7 +525,7 @@ def train_networks(
 
         iter_num += 1
         
-        if verbose > 1:
+        if verbose > 1 and iter_num % 100 == 0:
             print('iter', iter_num, 'sgd iter', sgd_iter, 'loss', total_loss.item(), 'policy loss', policy_loss.item(), 'entropy loss', entropy_loss.item(), 'value loss', value_loss.item(), 'policy grad norm', policy_grad_norm, 'value grad norm', value_grad_norm, 'policy lr', policy_lr, 'value lr', value_lr, 'policy param magnitude', policy_param_magnitude, 'value param magnitude', value_param_magnitude, 'policy gradient magnitude', policy_gradient_magnitude, 'value gradient magnitude', value_gradient_magnitude)
     return (
         policy,
@@ -558,7 +556,6 @@ def train(
     l1_loss: bool,
     wandb_log: bool,
     verbose: int,
-    rollout_buffer_size: int,
     checkpoint_interval: int = -1,
     checkpoint_path: str = None,
     resume_training: bool = False,
@@ -591,7 +588,7 @@ def train(
         init_type=init_type,
         device=device,
     )
-    rollout_buffer = RolloutBuffer(rollout_buffer_size)
+    rollout_buffer = RolloutBuffer(batch_size)
 
     if rescaling_rewards:
         reward_scaler = RewardScaler()
@@ -647,7 +644,7 @@ def train(
         policy.eval()
         value.eval()
         rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
-        for r in range(rollout_buffer_size):
+        for r in range(batch_size):
             total_rewards, steps, rollout_steps = next(rollout)
             if total_rewards is not None:
                 episode_steps.append(steps)
@@ -680,8 +677,9 @@ def train(
             save_checkpoint(policy, value, optimizer, epoch, checkpoint_path)
 
         # Average of last 10 episodes or all episodes if less than 10 episodes are available
-        average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
+        
         if len(episode_rewards) >= 20:
+            average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
             if wandb_log:
                 log_rewards(episode_rewards[-20:])
             if metrics_recorder:
@@ -734,10 +732,9 @@ config = {
     "gamma": 0.99,
     "tau": 0.95,
     "l1_loss": False,
-    "rollout_buffer_size": 4096,
     "sgd_iters": 20,
     "hidden_size": 64,
-    "batch_size": 64,
+    "batch_size": 256,
     "vf_coef": 0.5,
     "clip_param": 0.2,
     "max_grad_norm": 1,
@@ -809,7 +806,6 @@ def train_env(env_name):
             "value_lr": 0.0001120576307122378,
             "weight_decay": 0.0008145726123243288,
             "sgd_iters": 2,
-            "rollout_buffer_size": 512,
             "use_gae": False,
             "init_type": "he",
             "batch_size": 512,
@@ -819,7 +815,7 @@ def train_env(env_name):
             "entropy_coef": 3.015475350516561e-05,
             "tau": 0.9552356381259465,
         }
-        best_config = {'project': 'tune_continuous_action_ppo', 'seed': 684, 'env_name': 'Pendulum-v1', 'policy_lr': 0.004045246630390333, 'value_lr': 9.385638386366823e-05, 'weight_decay': 0.00014787566718110943, 'sgd_iters': 5, 'rollout_buffer_size': 512, 'scale_states': 'robust', 'use_gae': False, 'init_type': 'he', 'batch_size': 256, 'clip_param': 0.4949315363015096, 'max_grad_norm': 0.09811332067771494, 'vf_coef': 1.9972970256935074, 'entropy_coef': 0.0009703720514156818, 'tau': 0.9708373816559092}
+        best_config = {'project': 'tune_continuous_action_ppo', 'seed': 684, 'env_name': 'Pendulum-v1', 'policy_lr': 0.004045246630390333, 'value_lr': 9.385638386366823e-05, 'weight_decay': 0.00014787566718110943, 'sgd_iters': 5, 'scale_states': 'robust', 'use_gae': False, 'init_type': 'he', 'batch_size': 256, 'clip_param': 0.4949315363015096, 'max_grad_norm': 0.09811332067771494, 'vf_coef': 1.9972970256935074, 'entropy_coef': 0.0009703720514156818, 'tau': 0.9708373816559092}
     elif env_name == "LunarLanderContinuous-v2":
         pass
     elif env_name == "BipedalWalker-v3":
@@ -829,7 +825,7 @@ def train_env(env_name):
             "env_name": "PointMass1D-v0",
         }
     elif env_name == "PointMass2D-v0":
-        best_config =  {'project': 'continuous_action_ppo', 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'rollout_buffer_size': 1024, 'use_gae': True, 'batch_size': 256}
+        best_config =  {'project': 'continuous_action_ppo', 'env_name': 'PointMass2D-v0', 'policy_lr': 1.1985039908649049e-05, 'value_lr': 9.105973247901589e-05, 'weight_decay': 0.000197853572415373, 'sgd_iters': 10, 'use_gae': True, 'batch_size': 128}
 
     best_config["env_name"] = env_name
     train_config = update_config(best_config)
