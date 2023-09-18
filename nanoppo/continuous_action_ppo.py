@@ -38,8 +38,8 @@ warnings.filterwarnings(
     "ignore",
     message="Could not parse CUBLAS_WORKSPACE_CONFIG, using default workspace size of 8519680 bytes.",
 )
-gym.register("PointMass1D-v0", entry_point=PointMass1DEnv, max_episode_steps=1000)
-gym.register("PointMass2D-v0", entry_point=PointMass2DEnv, max_episode_steps=1000)
+gym.register("PointMass1D-v0", entry_point=PointMass1DEnv, max_episode_steps=200)
+gym.register("PointMass2D-v0", entry_point=PointMass2DEnv, max_episode_steps=200)
 # SEED = 153 # Set a random seed for reproducibility MountainviewCar 43 Pendulum 153
 # set_seed(SEED)
 
@@ -734,7 +734,7 @@ config = {
     "l1_loss": False,
     "hidden_size": 128,
     "batch_size": 256,
-    "sgd_iters": 1,
+    "sgd_iters": 4,
     "vf_coef": 0.5,
     "clip_param": 0.2,
     "max_grad_norm": 2,
