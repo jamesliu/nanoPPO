@@ -143,9 +143,14 @@ class PPOAgent:
         self.policy_old.load_state_dict(self.policy.state_dict())
 
     def save(self, path):
-        torch.save(self.policy.state_dict(), path)
-
+        # Saving
+        torch.save({
+            'model_state_dict': self.policy.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+        }, path)
+        
     def load(self, path):
-        self.policy.load_state_dict(torch.load(path))
-        self.policy_old.load_state_dict(self.policy.state_dict())
+        checkpoint = torch.load(path)
+        self.policy.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 

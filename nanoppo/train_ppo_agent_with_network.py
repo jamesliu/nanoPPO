@@ -1,4 +1,6 @@
 import torch
+import os
+import pickle
 from nanoppo.ppo_agent_with_network import PPOAgent, Normalizer
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.envs.point_mass1d import PointMass1DEnv
@@ -21,8 +23,6 @@ update_timestep = 200
 log_interval = 20
 max_episodes = 1000  # Modify this value based on how many episodes you want to train
 
-ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip)
-print(lr, betas)
 
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     values = values + [next_value]
@@ -65,6 +65,23 @@ class PPOMemory:
     def get(self):
         return torch.stack(self.states), torch.stack(self.actions), torch.stack(self.logprobs), torch.stack(self.next_states), torch.stack(self.rewards), torch.stack(self.is_terminals)
 
+ppo = PPOAgent(state_dim, action_dim, n_latent_var, lr, betas, gamma, K_epochs, eps_clip)
+print(lr, betas)
+
+# Load the best weights
+if os.path.exists("best_weights.pth"):
+    metrics = pickle.load(open('metrics.pkl', 'rb'))
+    best_reward = metrics['best_reward']
+    start_episode = metrics['episode']
+    ppo.load("best_weights.pth")
+    print("Loaded best weights!")
+else:
+    best_reward = float('-inf')
+    start_episode = 1
+print("best_reward", best_reward)
+print("start_episode", start_episode)
+print("log_interval", log_interval)
+
 # Initialize a normalizer with the dimensionality of the state
 state_normalizer = Normalizer(state_dim)
 
@@ -72,10 +89,9 @@ ppo_memory = PPOMemory()
 
 # Training loop
 time_step = 0
-best_reward = float('-inf')
 avg_length = 0
 cumulative_reward = 0  # Initialize cumulative reward
-for episode in range(1, max_episodes + 1):
+for episode in range(start_episode, max_episodes + start_episode):
     state, info = env.reset()
     state_normalizer.observe(state)
     state = state_normalizer.normalize(state)
@@ -123,10 +139,14 @@ for episode in range(1, max_episodes + 1):
         cumulative_reward = 0  # Reset cumulative reward after logging
         total_reward = 0
         if avg_reward > best_reward:
+            print('avg_reward', avg_reward, '> best_reward', best_reward)
             best_reward = avg_reward
+            metrics = {'best_reward': best_reward, 'episode':episode}
+            pickle.dump(metrics, open('metrics.pkl', 'wb'))
             ppo.save("best_weights.pth")
             print("Saved best weights!")
 
 # Load the best weights
 ppo.load("best_weights.pth")
 print("Loaded best weights!")
+print("best_reward", best_reward)
