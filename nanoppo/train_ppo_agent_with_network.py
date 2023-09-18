@@ -3,6 +3,7 @@ import os
 import pickle
 from nanoppo.ppo_agent_with_network import PPOAgent
 from nanoppo.normalizer import Normalizer
+from nanoppo.ppo_utils import compute_gae
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
 from nanoppo.envs.point_mass1d import PointMass1DEnv
 
@@ -17,6 +18,7 @@ n_latent_var = 128
 lr = 0.0005
 betas = (0.9, 0.999)
 gamma = 0.99
+tau = 0.95
 K_epochs = 4
 eps_clip = 0.2
 max_timesteps = 200
@@ -29,6 +31,7 @@ print(env_name)
 model_file = f"{env_name}_ppo.pth"
 metrics_file = f"{env_name}_metrics.pkl"
 
+"""
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     values = values + [next_value]
     gae = 0
@@ -37,8 +40,9 @@ def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
         delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
         gae = delta + gamma * tau * masks[step] * gae
         returns.insert(0, gae + values[step])
-    torch_returns = torch.tensor(returns, dtype=torch.float32)
-    return torch_returns
+    #torch_returns = torch.tensor(returns, dtype=torch.float32)
+    return returns
+"""
 
 # Memory for PPO
 class PPOMemory:
@@ -124,10 +128,11 @@ for episode in range(start_episode, max_episodes + start_episode):
             next_state = torch.FloatTensor(next_state)
             next_value = ppo.policy.get_value(next_state).detach().item()
             values = [ppo.policy.get_value(torch.FloatTensor(state)).item() for state in ppo_memory.states]
-            returns = compute_gae(next_value, ppo_memory.rewards, ppo_memory.is_terminals, values)
+            returns = compute_gae(next_value, ppo_memory.rewards, ppo_memory.is_terminals, values, gamma=gamma, tau=tau)
+            torch_returns = torch.tensor(returns, dtype=torch.float32)
 
             states, actions, log_probs, next_states, rewards, dones = ppo_memory.get()
-            ppo.update(states, actions, returns=returns, next_states=next_states, dones=dones)
+            ppo.update(states, actions, returns=torch_returns, next_states=next_states, dones=dones)
             ppo_memory.clear()
             time_step = 0
         if done:
