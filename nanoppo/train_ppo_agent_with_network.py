@@ -11,7 +11,8 @@ from nanoppo.environment_manager import EnvironmentManager
 # Setting up the environment and the agent
 #env = PointMass1DEnv()
 #env = PointMass2DEnv()
-env_name = "MountainCarContinuous-v0"
+#env_name = "MountainCarContinuous-v0"
+env_name = "PointMass2D-v0"
 env = EnvironmentManager(env_name).setup_env()
 
 state_dim = env.observation_space.shape[0]
@@ -150,7 +151,7 @@ for episode in range(start_episode, max_episodes + start_episode):
         sample_length = len(avg_length_list)
         avg_length = int(sum(avg_length_list) / sample_length)
         avg_reward = float(sum(cumulative_reward_list) / sample_length)
-        print('Episode {} \t sample length:{} avg length: {} \t avg reward: {} best reward: {}'.format(episode, sample_length, avg_length, avg_reward, best_reward))
+        print('Episode {} \t sample episodes:{} avg episode steps: {} \t avg reward: {} best reward: {}'.format(episode, sample_length, avg_length, avg_reward, best_reward))
         avg_length_list = []
         cumulative_reward_list = []  # Reset cumulative reward after logging
         if avg_reward > best_reward:
