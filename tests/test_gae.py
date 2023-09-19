@@ -1,5 +1,5 @@
 import numpy as np
-from nanoppo.continuous_action_ppo import compute_gae
+from nanoppo.ppo_utils import compute_gae
 
 def test_compute_gae():
     # Define some dummy data
