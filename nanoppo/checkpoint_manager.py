@@ -5,7 +5,7 @@ import torch
 
 class CheckpointManager:
     @staticmethod
-    def save_checkpoint(policy, value, optimizer, epoch, checkpoint_path):
+    def save_checkpoint(policy, value, optimizer, normalizer, epoch, checkpoint_path):
         # Create checkpoint directory if it does not exist
         if not os.path.exists(checkpoint_path):
             os.makedirs(checkpoint_path)
@@ -14,11 +14,12 @@ class CheckpointManager:
             "policy_state_dict": policy.state_dict(),
             "value_state_dict": value.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "normalizer_state": normalizer.get_state(),
         }
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_epoch{epoch}.pt")
 
     @staticmethod
-    def load_checkpoint(policy, value, optimizer, checkpoint_path, epoch=None):
+    def load_checkpoint(policy, value, optimizer, normalizer, checkpoint_path, epoch=None):
         # Find the latest checkpoint file
         if epoch is None:
             checkpoint_files = sorted(
@@ -34,5 +35,6 @@ class CheckpointManager:
         policy.load_state_dict(checkpoint["policy_state_dict"])
         value.load_state_dict(checkpoint["value_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        normalizer.set_state(checkpoint["normalizer_state"])
         epoch = checkpoint["epoch"]
         return epoch
