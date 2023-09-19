@@ -142,128 +142,15 @@ class PPOAgent:
         )
 
     @staticmethod
-    def rollout_with_step(
-        policy,
-        env,
-        device,
-        rollout_buffer: RolloutBuffer,
-        normalizer: Normalizer,
-        state_scaler: StateScaler,
-        reward_shaper: RewardShaper,
-        reward_scaler: RewardScaler,
-        max_timesteps: int,
-        batch_size: int,
-        wandb_log: bool,
-        debug: bool,
-    ):
-        time_step = 0
-        episode_step_list = []
-        total_reward_list = []  # Initialize cumulative reward
-        while True:
-            state, info = env.reset()
-            if isinstance(state, dict):
-                state = state["obs"]
-            if normalizer:
-                normalizer.observe(state)
-                scaled_state = normalizer.normalize(state)
-            elif state_scaler:
-                scaled_state = state_scaler.scale_state(state)
-            else:
-                raise ValueError("No state scaler or normalizer is provided")
-            done = False
-            total_reward = 0
-            
-            for step in range(max_timesteps):
-                action, log_prob, action_mean, action_std = PPOAgent.select_action(
-                    policy,
-                    scaled_state,
-                    device,
-                    env.action_space.low[0],
-                    env.action_space.high[0],
-                )
-                if wandb_log:
-                    WandBLogger.log_action_distribution_parameters(
-                        action_mean, action_std
-                    )
-
-
-                next_state, reward, done, truncated, info = env.step(action)
-
-                if isinstance(next_state, dict):
-                    next_state = next_state["obs"]
-                if normalizer:
-                    normalizer.observe(next_state)
-                    scaled_next_state = normalizer.normalize(next_state)
-                elif state_scaler:
-                    scaled_next_state = state_scaler.scale_state(next_state)
-                else:
-                    raise ValueError("No state scaler or normalizer is provided")
-
-                scaled_state = scaled_next_state
-                total_reward += reward
-                # Reshape rewards
-                if reward_shaper is None:
-                    reshaped_reward = reward
-                else:
-                    raise NotImplementedError
-                    reshaped_reward = reward_shaper.reshape(
-                        [reward], [state], [next_state]
-                    )[0]
-                # Scale rewards
-                if reward_scaler is None:
-                    scaled_reward = reshaped_reward
-                    # click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
-                else:
-                    raise NotImplementedError
-                    scaled_reward = reward_scaler.scale_rewards([reshaped_reward])[0]
-                rollout_buffer.push(
-                    state=scaled_state,
-                    action=action.squeeze(),
-                    log_prob=log_prob,
-                    reward=scaled_reward,
-                    next_state=scaled_next_state,
-                    done=done,
-                )
-                time_step += 1
-                if time_step % batch_size == 0:
-                    if debug and (time_step % 1000 == 0):
-                        print(
-                            "total_rewards(done or maxsteps or truncated)",
-                            round(total_reward,2),
-                            "reward",
-                            round(reward,2),
-                            "reshaped_reward",
-                            round(reshaped_reward,2),
-                            "scaled_reward",
-                            round(scaled_reward,2),
-                            "done",
-                            done,
-                            "truncated",
-                            truncated,
-                            "steps",
-                            step +1,
-                            "total steps",
-                            time_step,
-                        )
-                    yield episode_step_list, total_reward_list, time_step
-                if done or truncated:
-                    break
-
-            episode_step_list.append(step + 1)
-            total_reward_list.append(total_reward) 
-
-    @staticmethod
     def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef):
         # Policy loss
         dist = policy(states)
         new_probs = dist.log_prob(actions).sum(-1)
         ratio = torch.exp(new_probs - old_probs)  # Importance sampling ratio
         surr1 = ratio * advs
-        surr2 = (
-            torch.clamp(ratio, 1 - clip_param, 1 + clip_param) * advs
-        )  # Trust region clipping
-        entropy = dist.entropy().mean()  # Compute the mean entropy of the distribution
-        entropy_loss = - entropy_coef * entropy
+        surr2 = torch.clamp(ratio, 1 - clip_param, 1 + clip_param) * advs # Trust region clipping
+        #entropy = dist.entropy().mean()  # Compute the mean entropy of the distribution
+        #entropy_loss = - entropy_coef * entropy
 
         # Entropy (for exploration)
         approximate_entropy_loss = - entropy_coef * new_probs.mean()
@@ -274,19 +161,15 @@ class PPOAgent:
         )  # Add the entropy term to the policy loss
 
     @staticmethod
-    def compute_value_loss(state_values, returns, l1_loss):
+    def compute_value_loss(state_values, returns):
         # Compute value loss
         v_pred = state_values
         v_target = returns.squeeze()
-        value_loss = (
-            F.smooth_l1_loss(v_pred, v_target)
-            if l1_loss
-            else F.mse_loss(v_pred, v_target)
-        )
+        value_loss =  F.mse_loss(v_pred, v_target)
         return value_loss
 
     @staticmethod
-    def update(
+    def minibatch_update(
         iter_num,
         policy,
         value,
@@ -305,15 +188,9 @@ class PPOAgent:
         max_grad_norm,
         use_gae,
         tau,
-        l1_loss,
         wandb_log,
         metrics_recorder: MetricsRecorder,
     ):
-        assert (
-            len(rollout_buffer) >= batch_size
-        ), f"Rollout buffer length {len(rollout_buffer)} is less than batch size {batch_size}"
-         # Sample from the rollout buffer
-        assert(len(rollout_buffer.buffer) == batch_size), f'Rollout buffer length {len(rollout_buffer.buffer)} is not equal to batch size {batch_size}'
         (
             batch_states,
             batch_actions,
@@ -323,34 +200,29 @@ class PPOAgent:
             batch_dones,
         ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
 
-        # Compute returns and advantages from rollout buffer in order 
-        # Compute Advantage and Returns
-        returns = []
-        advs = []
-        g = 0
-        with torch.no_grad():
-            if use_gae:
-                # Compute Advantage using GAE and Returns
-                values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
-                next_value = value(batch_next_states[-1]).item()
-                masks = [1 - done.item() for done in batch_dones]
-                # Only compute returns once
-                returns = compute_gae(
-                    next_value, batch_rewards, masks, values, gamma, tau
-                )
-            else:
-                returns, advs = compute_returns_and_advantages_without_gae(
-                    batch_rewards,
-                    batch_states,
-                    batch_next_states,
-                    batch_dones,
-                    value,
-                    gamma,
-                )
+        # Compute returns once from rollout buffer in order 
+        if use_gae:
+            # Compute Advantage using GAE and Returns
+            values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
+            next_value = value(batch_next_states[-1]).item()
+            masks = [1 - done.item() for done in batch_dones]
+            # Only compute returns once
+            returns = compute_gae(
+                next_value, batch_rewards, masks, values, gamma, tau
+            )
+        else:
+            returns, advs = compute_returns_and_advantages_without_gae(
+                batch_rewards,
+                batch_states,
+                batch_next_states,
+                batch_dones,
+                value,
+                gamma,
+            )
 
         returns = torch.tensor(returns, dtype=torch.float32).to(device)
         for sgd_iter in range(sgd_iters):
-            
+            # Compute advantages separately for each SGD iteration
             state_values = value(batch_states).squeeze()
             advantages = returns - state_values.detach()
             # Normalize the advantages (optional, but can help in training stability)
@@ -366,13 +238,16 @@ class PPOAgent:
                 entropy_coef=entropy_coef,
             )
 
-            value_loss = PPOAgent.compute_value_loss( state_values, returns, l1_loss)
+            value_loss = PPOAgent.compute_value_loss(state_values, returns)
 
             # Compute total loss and update parameters
             total_loss = policy_loss + entropy_loss + vf_coef * value_loss
 
             optimizer.zero_grad()
             total_loss.backward()
+            optimizer.step()
+            #if scheduler is not None:
+            #    scheduler.step()
 
             """
             # Clip the gradients to avoid exploding gradients
@@ -396,9 +271,6 @@ class PPOAgent:
             activation_norm = sum(activation_norms) / len(activation_norms)
             """
 
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
 
             if wandb_log:
                 # Log the losses and gradients to WandB
@@ -481,7 +353,6 @@ class PPOAgent:
         max_grad_norm: float,
         use_gae: bool,
         tau: float,
-        l1_loss: bool,
         verbose: int,
         checkpoint_interval:int,
         checkpoint_dir: str,
@@ -511,62 +382,110 @@ class PPOAgent:
         else:
             reward_shaper = shape_reward()
 
-        # Set up rollout generator
-        rollout = PPOAgent.rollout_with_step(
-            policy=policy_old,
-            env=env,
-            device=device,
-            rollout_buffer=rollout_buffer,
-            normalizer=normalizer,
-            state_scaler=state_scaler,
-            reward_shaper=reward_shaper,
-            reward_scaler=reward_scaler,
-            max_timesteps=max_timesteps,
-            batch_size=batch_size,
-            wandb_log=wandb_log,
-            debug=True if verbose > 1 else False,
-        )
         # Set up training loop
         total_iters = epochs * sgd_iters
+        time_steps = 0
+        episode_steps = []
+        episode_rewards = []  # Initialize cumulative reward
         train_iters = 0
         average_reward = -np.inf
+        best_reward = -np.inf
         start = time()
         for epoch in PPOAgent.get_epoch_iterator(last_epoch, epochs, verbose):
-            policy.eval()
-            value.eval()
+            state, info = env.reset()
+            if isinstance(state, dict):
+                state = state["obs"]
+            if normalizer:
+                normalizer.observe(state)
+                scaled_state = normalizer.normalize(state)
+            elif state_scaler:
+                scaled_state = state_scaler.scale_state(state)
+            else:
+                raise ValueError("No state scaler or normalizer is provided")
+            done = False
+            total_reward = 0
             
-            episode_steps, episode_rewards, time_steps = next(rollout)
-            policy.train()
-            value.train()
-            _, _, train_iters = PPOAgent.update(
-                train_iters,
-                policy,
-                value,
-                policy_old,
-                value_old,
-                optimizer,
-                scheduler,
-                rollout_buffer,
-                device,
-                batch_size,
-                sgd_iters,
-                gamma,
-                clip_param,
-                vf_coef,
-                entropy_coef,
-                max_grad_norm=max_grad_norm,
-                use_gae=use_gae,
-                tau=tau,
-                l1_loss=l1_loss,
-                wandb_log=wandb_log,
-                metrics_recorder=metrics_recorder,
-            )
-            if checkpoint_interval > 0 and ((epoch + 1) % checkpoint_interval) == 0:
-                if verbose > 0:
-                    print("Saving checkpoint...", checkpoint_path)
-                CheckpointManager.save_checkpoint(
-                    policy, value, optimizer, normalizer, epoch, checkpoint_path
+            for step in range(max_timesteps):
+                action, log_prob, action_mean, action_std = PPOAgent.select_action(
+                    policy,
+                    scaled_state,
+                    device,
+                    env.action_space.low[0],
+                    env.action_space.high[0],
                 )
+                if wandb_log:
+                    WandBLogger.log_action_distribution_parameters(
+                        action_mean, action_std
+                    )
+
+                next_state, reward, done, truncated, info = env.step(action)
+
+                if isinstance(next_state, dict):
+                    next_state = next_state["obs"]
+                if normalizer:
+                    normalizer.observe(next_state)
+                    scaled_next_state = normalizer.normalize(next_state)
+                elif state_scaler:
+                    scaled_next_state = state_scaler.scale_state(next_state)
+                else:
+                    raise ValueError("No state scaler or normalizer is provided")
+
+                scaled_state = scaled_next_state
+                total_reward += reward
+                # Reshape rewards
+                if reward_shaper is None:
+                    reshaped_reward = reward
+                else:
+                    raise NotImplementedError
+                    reshaped_reward = reward_shaper.reshape(
+                        [reward], [state], [next_state]
+                    )[0]
+                # Scale rewards
+                if reward_scaler is None:
+                    scaled_reward = reshaped_reward
+                    # click.secho("Warning: Reward scaling is not applied.", fg="yellow", err=True)
+                else:
+                    raise NotImplementedError
+                    scaled_reward = reward_scaler.scale_rewards([reshaped_reward])[0]
+                rollout_buffer.push(
+                    state=scaled_state,
+                    action=action.squeeze(),
+                    log_prob=log_prob,
+                    reward=scaled_reward,
+                    next_state=scaled_next_state,
+                    done=done,
+                )
+                time_steps += 1
+                if time_steps % batch_size == 0:
+                    _, _, train_iters = PPOAgent.minibatch_update(
+                        train_iters,
+                        policy,
+                        value,
+                        policy_old,
+                        value_old,
+                        optimizer,
+                        scheduler,
+                        rollout_buffer,
+                        device,
+                        batch_size,
+                        sgd_iters,
+                        gamma,
+                        clip_param,
+                        vf_coef,
+                        entropy_coef,
+                        max_grad_norm=max_grad_norm,
+                        use_gae=use_gae,
+                        tau=tau,
+                        wandb_log=wandb_log,
+                        metrics_recorder=metrics_recorder,
+                    )
+ 
+                if done or truncated:
+                    break
+
+            episode_steps.append(step + 1)
+            episode_rewards.append(total_reward) 
+                
             # Average of last 10 episodes or all episodes if less than 10 episodes are available
             if len(episode_rewards) >= 20 and (epoch + 1) % log_interval == 0:
                 average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
@@ -602,6 +521,15 @@ class PPOAgent:
                 value_grad_norm = get_grad_norm(value.parameters())
                 print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
                       'value_grad_norm', round(value_grad_norm,2))
+
+            if checkpoint_interval > 0: 
+                if average_reward > best_reward:
+                    print("Saving checkpoint...", checkpoint_path)
+                    print('avg_reward', average_reward, '> best_reward', best_reward)
+                    best_reward = average_reward
+                    CheckpointManager.save_checkpoint(
+                    policy, value, optimizer, normalizer, epoch, checkpoint_path)
+
         end = time()
         print("Training time: ", round((end - start) / 60, 2), "minutes")
         if metrics_recorder:
@@ -648,7 +576,6 @@ class PPOAgent:
             max_grad_norm=self.config["max_grad_norm"],
             use_gae=self.config["use_gae"],
             tau=self.config["tau"],
-            l1_loss=self.config["l1_loss"],
             verbose=self.config["verbose"],
             checkpoint_interval=self.config["checkpoint_interval"],
             checkpoint_dir=self.config['checkpoint_dir'],
