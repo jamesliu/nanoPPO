@@ -128,8 +128,6 @@ def train_agent(env_name, max_episodes=500,
                 ppo_memory.clear()
                 time_step = 0
             if done or truncated:
-                if wandb_log:
-                    wandb.log({'episode_reward': total_reward})
                 break
     
         avg_length_list.append(t + 1)
@@ -137,6 +135,7 @@ def train_agent(env_name, max_episodes=500,
         cumulative_reward_list.append(total_reward) 
     
         avg_reward = float(sum(cumulative_reward_list) / len(cumulative_reward_list))
+        avg_length = int(sum(avg_length_list) / len(avg_length_list))
         action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
         action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
         value_grad_norm = get_grad_norm(ppo.policy.value_layer.parameters())
@@ -159,7 +158,8 @@ def train_agent(env_name, max_episodes=500,
             print("Saved best weights!", model_file, metrics_file)
 
         if wandb_log:
-            wandb.log({'action_mu_grad_norm': action_mu_grad_norm, 'action_log_std_grad_norm': action_log_std_grad_norm, 'value_grad_norm': value_grad_norm})
+            wandb.log({'avg_reward': avg_reward, 'best_reward': best_reward, 'avg_length': avg_length,
+                'action_mu_grad_norm': action_mu_grad_norm, 'action_log_std_grad_norm': action_log_std_grad_norm, 'value_grad_norm': value_grad_norm})
     if wandb_log:
         wandb.finish()
     return ppo, model_file, metrics_file

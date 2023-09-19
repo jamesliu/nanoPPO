@@ -37,8 +37,15 @@ ppo = PPO(env.observation_space.shape[0], env.action_space.n)
 
 # Training code here...
 ```
-
+## Examples
 See the [examples](./examples) directory for more comprehensive usage examples.
+
+examples/train_mountaincar.sh
+
+```
+python nanoppo/train_ppo_agent.py --env_name=MountainCarContinuous-v0 --policy_lr=0.0005 --value_lr=0.0005 --max_episodes=50 --vl_coef=0.5 --wandb_log
+```
+![repro124m](assets/MountainCar-Continuous-v0.png)
 
 ## Documentation
 
