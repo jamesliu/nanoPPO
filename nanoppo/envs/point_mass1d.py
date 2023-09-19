@@ -3,7 +3,7 @@ from gym import spaces
 import numpy as np
 
 class PointMass1DEnv(gym.Env):
-    def __init__(self, action_range=1.0, position_limit=10.0, damping_factor=0.95, max_episode_steps=200):
+    def __init__(self, action_range=1.0, position_limit=10.0, damping_factor=0.9, max_episode_steps=200):
         super(PointMass1DEnv, self).__init__()
         self.action_range = action_range
         # Action space: Force [-1.0, 1.0]
@@ -18,7 +18,7 @@ class PointMass1DEnv(gym.Env):
         self.damping_factor = damping_factor
 
     def reset(self):
-        self.state = [0.5 * (2 * np.random.rand() - 1), 0.0]  # random initial position, zero velocity
+        self.state = np.array([0.5 * (2 * np.random.rand() - 1), 0.0], dtype=np.float32)  # random initial position, zero velocity
         self.current_step = 0
         return self.state, {}
 
@@ -33,10 +33,10 @@ class PointMass1DEnv(gym.Env):
         # Clamp position to bounds
         position = np.clip(position, self.observation_space.low[0], self.observation_space.high[0])
 
-        self.state = [position, velocity]
+        self.state = np.array([position, velocity], dtype=np.float32)
 
         # Calculate reward
-        reward = -abs(position)  # reward is negative absolute distance to origin
+        reward = 0.5 -abs(position)  # reward is negative absolute distance to origin
         
         self.current_step += 1
         done = self.current_step >= self.max_steps

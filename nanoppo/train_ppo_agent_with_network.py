@@ -41,7 +41,7 @@ class PPOMemory:
     def get(self):
         return torch.stack(self.states), torch.stack(self.actions), torch.stack(self.logprobs), torch.stack(self.next_states), torch.stack(self.rewards), torch.stack(self.is_terminals)
 
-def train_agent(env_name, max_episodes=1000,
+def train_agent(env_name, max_episodes=500,
                 policy_lr=0.0005, value_lr=0.0005, betas=(0.9, 0.999), 
                 n_latent_var=128, gamma=0.99, tau=0.95, K_epochs=4, eps_clip=0.2, 
                 max_timesteps=2000, update_timestep=200,
@@ -59,7 +59,7 @@ def train_agent(env_name, max_episodes=1000,
     model_file = f"{checkpoint_path}/models.pth"
     metrics_file = f"{checkpoint_path}/metrics.pkl"
     if wandb_log:
-        wandb.init(project="nanoppo", name=env_name, 
+        wandb.init(project="nanoPPO", name=env_name, 
                    config={'policy_lr': policy_lr, 'value_lr': value_lr, 'betas': betas, 'gamma': gamma, 
                            'tau': tau, 'K_epochs': K_epochs, 'eps_clip': eps_clip})
 
@@ -125,6 +125,8 @@ def train_agent(env_name, max_episodes=1000,
                 ppo_memory.clear()
                 time_step = 0
             if done or truncated:
+                if wandb_log:
+                    wandb.log({'episode_reward': total_reward})
                 break
     
         avg_length_list.append(t + 1)
@@ -132,6 +134,9 @@ def train_agent(env_name, max_episodes=1000,
         cumulative_reward_list.append(total_reward) 
     
         avg_reward = float(sum(cumulative_reward_list) / len(cumulative_reward_list))
+        action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
+        action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
+        value_grad_norm = get_grad_norm(ppo.policy.value_layer.parameters())
         # Logging
         if log_interval > 0 and (episode % log_interval == 0):
             sample_length = len(avg_length_list)
@@ -139,9 +144,6 @@ def train_agent(env_name, max_episodes=1000,
             print('Episode {} \t sample episodes:{} avg episode steps: {} \t avg reward: {} best reward: {}'.format(episode, sample_length, avg_length, avg_reward, best_reward))
             avg_length_list = []
             cumulative_reward_list = []  # Reset cumulative reward after logging
-            action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
-            action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
-            value_grad_norm = get_grad_norm(ppo.policy.value_layer.parameters())
             print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
                   'value_grad_norm', round(value_grad_norm,2))
 
@@ -153,18 +155,23 @@ def train_agent(env_name, max_episodes=1000,
             ppo.save(model_file)
             print("Saved best weights!", model_file, metrics_file)
 
+        if wandb_log:
+            wandb.log({'action_mu_grad_norm': action_mu_grad_norm, 'action_log_std_grad_norm': action_log_std_grad_norm, 'value_grad_norm': value_grad_norm})
+    if wandb_log:
+        wandb.finish()
     return ppo, model_file, metrics_file
    
 @click.command()
 @click.option('--env_name', default="PointMass2D-v0", type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]))
+@click.option("--max_episodes", default=100, help="Number of training episodes.")
 @click.option("--policy_lr", default=0.0005, help="Learning rate for policy network.")
 @click.option("--value_lr", default=0.0005, help="Learning rate for value network.")
 @click.option("--checkpoint_dir", default="checkpoints", help="Path to checkpoint.")
 @click.option("--checkpoint_interval", default=100, help="Checkpoint interval.")
 @click.option("--log_interval", default=10, help="Logging interval.")
 @click.option("--wandb_log", is_flag=True, default=False, help="Flag to log results to wandb.")
-def cli(env_name, policy_lr, value_lr, checkpoint_dir, checkpoint_interval, log_interval, wandb_log):
-    ppo, model_file, metrics_file = train_agent(env_name=env_name, policy_lr=policy_lr, value_lr=value_lr,
+def cli(env_name, max_episodes, policy_lr, value_lr, checkpoint_dir, checkpoint_interval, log_interval, wandb_log):
+    ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
                                                 checkpoint_dir=checkpoint_dir, 
                                                 checkpoint_interval=checkpoint_interval, log_interval=log_interval, 
                                                 wandb_log=wandb_log)

@@ -6,16 +6,20 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from nanoppo.policy.actor_critic import ActorCritic
+import wandb
 
 # PPO Agent
 class PPOAgent:
-    def __init__(self, state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip, state_normalizer, action_low, action_high):
+    def __init__(self, state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip,
+                 state_normalizer, action_low, action_high, vl_coef=0.5, el_coef=0.001, wandb_log=False):
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         self.state_normalizer = state_normalizer
         self.action_low = action_low
         self.action_high = action_high
+        self.vl_coef = vl_coef
+        self.el_coef = el_coef
 
         self.policy = ActorCritic(state_dim, action_dim, n_latent_var, action_low, action_high).float()
         self.policy_old = ActorCritic(state_dim, action_dim, n_latent_var, action_low, action_high).float()
@@ -32,6 +36,7 @@ class PPOAgent:
         ], betas=betas)
 
         self.mse_loss = nn.MSELoss()
+        self.wandb_log = wandb_log
 
     def update(self, states, actions, returns, next_states, dones):
         for _ in range(self.K_epochs):
@@ -52,10 +57,10 @@ class PPOAgent:
             policy_loss = -torch.min(surr1, surr2).mean()
     
             # Value loss
-            value_loss = 0.5 * self.mse_loss(state_values, returns)
+            value_loss = self.vl_coef * self.mse_loss(state_values, returns)
     
             # Entropy (for exploration)
-            entropy_loss = -0.01 * logprobs.mean()
+            entropy_loss = -self.el_coef * logprobs.mean()
     
             # Total loss
             loss = policy_loss + value_loss + entropy_loss
@@ -64,6 +69,13 @@ class PPOAgent:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            if self.wandb_log:
+                wandb.log({
+                    "policy_loss": policy_loss.item(),
+                    "value_loss": value_loss.item(),
+                    "entropy_loss": entropy_loss.item(),
+                    "total_loss": loss.item(),
+                })
             
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
