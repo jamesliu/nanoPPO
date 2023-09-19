@@ -44,6 +44,7 @@ class PPOMemory:
 def train_agent(env_name, max_episodes=500,
                 policy_lr=0.0005, value_lr=0.0005, betas=(0.9, 0.999), 
                 n_latent_var=128, gamma=0.99, tau=0.95, K_epochs=4, eps_clip=0.2, 
+                vl_coef=0.5, el_coef=0.001,
                 max_timesteps=2000, update_timestep=200,
                 checkpoint_dir='checkpoints', checkpoint_interval=-1, log_interval=-1, wandb_log=False):
     # Setting up the environment and the agent
@@ -66,7 +67,9 @@ def train_agent(env_name, max_episodes=500,
     # Initialize a normalizer with the dimensionality of the state
     state_normalizer = Normalizer(state_dim)
     ppo = PPOAgent(state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip, state_normalizer, 
-                   action_low=env.action_space.low, action_high=env.action_space.high, wandb_log=wandb_log)
+                   action_low=env.action_space.low, action_high=env.action_space.high, 
+                   vl_coef=vl_coef, el_coef=el_coef,
+                   wandb_log=wandb_log)
     print(policy_lr, value_lr, betas)
     
     # Load the best weights
@@ -166,12 +169,15 @@ def train_agent(env_name, max_episodes=500,
 @click.option("--max_episodes", default=100, help="Number of training episodes.")
 @click.option("--policy_lr", default=0.0005, help="Learning rate for policy network.")
 @click.option("--value_lr", default=0.0005, help="Learning rate for value network.")
+@click.option("--vl_coef", default=0.5, help="Value function coefficient.")
 @click.option("--checkpoint_dir", default="checkpoints", help="Path to checkpoint.")
 @click.option("--checkpoint_interval", default=100, help="Checkpoint interval.")
 @click.option("--log_interval", default=10, help="Logging interval.")
 @click.option("--wandb_log", is_flag=True, default=False, help="Flag to log results to wandb.")
-def cli(env_name, max_episodes, policy_lr, value_lr, checkpoint_dir, checkpoint_interval, log_interval, wandb_log):
+def cli(env_name, max_episodes, policy_lr, value_lr, vl_coef,
+        checkpoint_dir, checkpoint_interval, log_interval, wandb_log):
     ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
+                                                vl_coef=vl_coef,
                                                 checkpoint_dir=checkpoint_dir, 
                                                 checkpoint_interval=checkpoint_interval, log_interval=log_interval, 
                                                 wandb_log=wandb_log)
