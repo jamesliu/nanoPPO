@@ -32,11 +32,23 @@ class NetworkManager:
                 n_latent_var=self.hidden_size,
                 action_low=self.env.action_space.low,
                 action_high=self.env.action_space.high
-            ).to(self.device)
+            ).float().to(self.device)
+
+            value = policy.value_layer
             
             # Separate the parameters of the actor and critic networks
-            actor_params = list(policy.action_mu.parameters()) + list(self.policy.action_log_std.parameters())
+            actor_params = list(policy.action_mu.parameters()) + list(policy.action_log_std.parameters())
             critic_params = list(policy.value_layer.parameters())
+
+            policy_old = ActorCritic(
+                state_dim=observation_space.shape[0],
+                action_dim=action_dim,
+                n_latent_var=self.hidden_size,
+                action_low=self.env.action_space.low,
+                action_high=self.env.action_space.high
+            ).float().to(self.device)
+            policy_old.load_state_dict(policy.state_dict())
+            value_old = policy_old.value_layer
         
         else:
             policy = PolicyNetwork(
@@ -78,4 +90,4 @@ class NetworkManager:
                 f"Scheduler {self.optimizer_config['scheduler']} not recognized."
             )
 
-        return policy, value, optimizer, scheduler
+        return policy, value, optimizer, scheduler, policy_old, value_old

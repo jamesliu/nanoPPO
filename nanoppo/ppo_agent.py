@@ -55,6 +55,8 @@ class PPOAgent:
             self.value,
             self.optimizer,
             self.scheduler,
+            self.policy_old,
+            self.value_old
         ) = self.network_manager.setup_networks()
 
         self.rollout_buffer = RolloutBuffer(self.config["batch_size"])
@@ -111,7 +113,7 @@ class PPOAgent:
     @staticmethod
     def load_checkpoint(self, checkpoint_path, epoch=None):
         last_epoch = CheckpointManager.load_checkpoint(
-            self.policy, self.value, self.optimizer, checkpoint_path, epoch
+            self.policy, self.value, self.optimizer, self.normalizer, checkpoint_path, epoch
         )
         return last_epoch
 
@@ -149,12 +151,15 @@ class PPOAgent:
         state_scaler: StateScaler,
         reward_shaper: RewardShaper,
         reward_scaler: RewardScaler,
+        max_timesteps: int,
+        batch_size: int,
         wandb_log: bool,
         debug: bool,
     ):
-        total_steps = 0
+        time_step = 0
+        episode_step_list = []
+        total_reward_list = []  # Initialize cumulative reward
         while True:
-            steps = 0
             state, info = env.reset()
             if isinstance(state, dict):
                 state = state["obs"]
@@ -166,10 +171,9 @@ class PPOAgent:
             else:
                 raise ValueError("No state scaler or normalizer is provided")
             done = False
-            truncated = False
-            accumulated_rewards = 0
-
-            while (not done) and (not truncated):
+            total_reward = 0
+            
+            for step in range(max_timesteps):
                 action, log_prob, action_mean, action_std = PPOAgent.select_action(
                     policy,
                     scaled_state,
@@ -196,7 +200,7 @@ class PPOAgent:
                     raise ValueError("No state scaler or normalizer is provided")
 
                 scaled_state = scaled_next_state
-                accumulated_rewards += reward
+                total_reward += reward
                 # Reshape rewards
                 if reward_shaper is None:
                     reshaped_reward = reward
@@ -220,33 +224,33 @@ class PPOAgent:
                     next_state=scaled_next_state,
                     done=done,
                 )
-                total_steps += 1
-                steps += 1
-                if done or truncated:
-                    total_rewards = accumulated_rewards
-                    accumulated_rewards = 0
-                    if debug and (total_steps % 1000 == 0):
+                time_step += 1
+                if time_step % batch_size == 0:
+                    if debug and (time_step % 1000 == 0):
                         print(
-                            "total steps",
-                            total_steps,
-                            "steps",
-                            steps,
-                            "total_rewards(done or truncated)",
-                            total_rewards,
+                            "total_rewards(done or maxsteps or truncated)",
+                            round(total_reward,2),
+                            "reward",
+                            round(reward,2),
+                            "reshaped_reward",
+                            round(reshaped_reward,2),
+                            "scaled_reward",
+                            round(scaled_reward,2),
                             "done",
                             done,
                             "truncated",
                             truncated,
-                            "reward",
-                            reward,
-                            "reshaped_reward",
-                            reshaped_reward,
-                            "scaled_reward",
-                            scaled_reward,
+                            "steps",
+                            step +1,
+                            "total steps",
+                            time_step,
                         )
-                    yield total_rewards, steps, total_steps
-                else:
-                    yield None, steps, total_steps
+                    yield episode_step_list, total_reward_list, time_step
+                if done or truncated:
+                    break
+
+            episode_step_list.append(step + 1)
+            total_reward_list.append(total_reward) 
 
     @staticmethod
     def surrogate(policy, old_probs, states, actions, advs, clip_param, entropy_coef):
@@ -259,9 +263,14 @@ class PPOAgent:
             torch.clamp(ratio, 1 - clip_param, 1 + clip_param) * advs
         )  # Trust region clipping
         entropy = dist.entropy().mean()  # Compute the mean entropy of the distribution
+        entropy_loss = - entropy_coef * entropy
+
+        # Entropy (for exploration)
+        approximate_entropy_loss = -0.01 * new_probs.mean()
+
         return (
             -torch.min(surr1, surr2).mean(),
-            -entropy_coef * entropy,
+            approximate_entropy_loss
         )  # Add the entropy term to the policy loss
 
     @staticmethod
@@ -281,6 +290,8 @@ class PPOAgent:
         iter_num,
         policy,
         value,
+        policy_old,
+        value_old,
         optimizer,
         scheduler,
         rollout_buffer: RolloutBuffer,
@@ -320,7 +331,7 @@ class PPOAgent:
             with torch.no_grad():
                 if use_gae:
                     # Compute Advantage using GAE and Returns
-                    values = value(batch_states).squeeze().tolist()
+                    values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
                     next_value = value(batch_next_states[-1]).item()
                     masks = [1 - done.item() for done in batch_dones]
                     returns = compute_gae(
@@ -328,7 +339,6 @@ class PPOAgent:
                     )
                     advs = [ret - val for ret, val in zip(returns, values)]
                 else:
-                    raise NotImplementedError
                     returns, advs = compute_returns_and_advantages_without_gae(
                         batch_rewards,
                         batch_states,
@@ -453,6 +463,8 @@ class PPOAgent:
             iter_num += 1
 
         rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
+        # Copy new weights into old policy
+        policy_old.load_state_dict(policy.state_dict())
         return (
             policy,
             value,
@@ -472,9 +484,12 @@ class PPOAgent:
         reward_scaler: RewardScaler,
         policy: PolicyNetwork,
         value: ValueNetwork,
+        policy_old,
+        value_old,
         optimizer: optim.Optimizer,
         scheduler: optim.lr_scheduler._LRScheduler,
         epochs: int,
+        max_timesteps: int,
         batch_size: int,
         sgd_iters: int,
         gamma: float,
@@ -516,7 +531,7 @@ class PPOAgent:
 
         # Set up rollout generator
         rollout = PPOAgent.rollout_with_step(
-            policy=policy,
+            policy=policy_old,
             env=env,
             device=device,
             rollout_buffer=rollout_buffer,
@@ -524,32 +539,29 @@ class PPOAgent:
             state_scaler=state_scaler,
             reward_shaper=reward_shaper,
             reward_scaler=reward_scaler,
+            max_timesteps=max_timesteps,
+            batch_size=batch_size,
             wandb_log=wandb_log,
             debug=True if verbose > 1 else False,
         )
         # Set up training loop
-        episode_rewards = []
-        episode_steps = []
         total_iters = epochs * sgd_iters
         train_iters = 0
-        rollout_steps = 0
         average_reward = -np.inf
         start = time()
         for epoch in PPOAgent.get_epoch_iterator(last_epoch, epochs, verbose):
             policy.eval()
             value.eval()
             
-            for r in range(batch_size):
-                total_rewards, steps, rollout_steps = next(rollout)
-                if total_rewards is not None:
-                    episode_steps.append(steps)
-                    episode_rewards.append(total_rewards)
+            episode_steps, episode_rewards, time_steps = next(rollout)
             policy.train()
             value.train()
             _, _, train_iters = PPOAgent.update(
                 train_iters,
                 policy,
                 value,
+                policy_old,
+                value_old,
                 optimizer,
                 scheduler,
                 rollout_buffer,
@@ -571,9 +583,8 @@ class PPOAgent:
                 if verbose > 0:
                     print("Saving checkpoint...", checkpoint_path)
                 CheckpointManager.save_checkpoint(
-                    policy, value, optimizer, epoch, checkpoint_path
+                    policy, value, optimizer, normalizer, epoch, checkpoint_path
                 )
-
             # Average of last 10 episodes or all episodes if less than 10 episodes are available
             if len(episode_rewards) >= 20 and (epoch + 1) % log_interval == 0:
                 average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
@@ -588,20 +599,20 @@ class PPOAgent:
                 print("env", env_name,
                     "epoch",
                     epoch + 1,
-                    "total sampled episodes",
+                    "reward episodes",
                     len(episode_rewards),
-                    "everage episode steps",
+                    "everage steps",
                     np.mean(episode_steps),
                     "average reward",
-                    average_reward,
+                    round(average_reward,2),
                     "train epochs",
                     epoch - last_epoch + 1,
                     "train iters",
                     train_iters,
                     "rollout episodes",
                     len(episode_rewards),
-                    "rollout steps",
-                    rollout_steps,
+                    "rollout time steps",
+                    time_steps,
                 )
 
                 action_mu_grad_norm = get_grad_norm(policy.action_mu.parameters())
@@ -637,9 +648,12 @@ class PPOAgent:
             normalizer=self.normalizer,
             policy=self.policy,
             value=self.value,
+            policy_old = self.policy_old,
+            value_old = self.value_old,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             epochs=epochs,
+            max_timesteps=self.config["max_timesteps"],
             batch_size=self.config["batch_size"],
             sgd_iters=self.config["sgd_iters"],
             gamma=self.config["gamma"],

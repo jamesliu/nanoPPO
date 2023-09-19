@@ -11,7 +11,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
     type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]),
     help="Name of the environment.",
 )
-@click.option("--epochs", default=500, help="Number of training epochs.")
+@click.option("--epochs", default=1000, help="Number of training epochs.")
 @click.option("--policy_lr", default=0.0005, help="Learning rate for policy network.")
 @click.option("--value_lr", default=0.0005, help="Learning rate for value network.")
 @click.option(
@@ -20,12 +20,13 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 @click.option("--scale_states", default="default", 
               type=click.Choice(["default", "env", "standard", "minmax", "robust", "quantile"]),
               help="Type of state scaling.")
-@click.option("--batch_size", default=64, help="Batch size for training.")
-@click.option("--sgd_iters", default=4, help="Number of SGD iterations.")
+@click.option("--max_timesteps", default=1000, help="Maximum number of timesteps for an episode.")
+@click.option("--batch_size", default=200, help="Batch size for training updates.")
+@click.option("--sgd_iters", default=4, help="Number of SGD iterations for training updates.")
 @click.option("--use_gae/--no_use_gae", is_flag=True, default=True, help="Flag to use GAE.")
 @click.option("--l1_loss", is_flag=True, default=False, help="Flag to use L1 loss for value/critic network.")
 @click.option("--gamma", default=0.99, help="Discount factor.")
-@click.option("--hidden_size", default=64, help="Hidden size for the neural network.")
+@click.option("--hidden_size", default=128, help="Hidden size for the neural network.")
 @click.option(
     "--init_type",
     default="he",
@@ -34,7 +35,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 )
 @click.option("--clip_param", default=0.2, help="Clipping parameter for PPO.")
 @click.option("--vf_coef", default=0.5, help="Value function coefficient.")
-@click.option("--entropy_coef", default=1e-2, help="Entropy coefficient.")
+@click.option("--entropy_coef", default=1e-3, help="Entropy coefficient.")
 @click.option(
     "--max_grad_norm", default=1000, help="Maximum gradient norm for clipping."
 )
@@ -64,6 +65,7 @@ def cli(
     value_lr,
     rescaling_rewards,
     scale_states,
+    max_timesteps,
     batch_size,
     sgd_iters,
     use_gae,
@@ -100,10 +102,11 @@ def cli(
         "scale_states": scale_states,  # [None, "env", "standard", "minmax", "robust", "quantile"]:
         "init_type": init_type,  # xavier, he
         "use_gae": use_gae,
-        "tau": 0.97,
+        "tau": 0.95,
         "l1_loss": l1_loss,
         "sgd_iters": sgd_iters,
         "hidden_size": hidden_size,
+        "max_timesteps": max_timesteps,
         "batch_size": batch_size,
         "gamma": gamma,
         "vf_coef": vf_coef,
@@ -127,7 +130,7 @@ def cli(
         "beta2": 0.999,
         "epsilon": 1e-8,
         "weight_decay": 0,
-        "scheduler": "cosine",
+        "scheduler": None,
         "cosine_T_max": config["epochs"]
         * config["sgd_iters"],  # arbitrary value; you might want to adjust
         "exponential_gamma": 0.99,  # arbitrary value; you might want to adjust
