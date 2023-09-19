@@ -6,8 +6,6 @@ import wandb
 from nanoppo.continuous_action_ppo import PPOAgent
 from nanoppo.normalizer import Normalizer
 from nanoppo.ppo_utils import compute_gae
-from nanoppo.envs.point_mass2d import PointMass2DEnv 
-from nanoppo.envs.point_mass1d import PointMass1DEnv
 from nanoppo.environment_manager import EnvironmentManager
 from nanoppo.ppo_utils import get_grad_norm
 
@@ -143,11 +141,14 @@ def train_agent(env_name, max_episodes=500,
         if log_interval > 0 and (episode % log_interval == 0):
             sample_length = len(avg_length_list)
             avg_length = int(sum(avg_length_list) / sample_length)
-            print('Episode {} \t sample episodes:{} avg episode steps: {} \t avg reward: {} best reward: {}'.format(episode, sample_length, avg_length, avg_reward, best_reward))
+            print(('Episode {} \t samples:{} avg steps: {} \t avg reward: {:.2f} \t best reward: {:.2f} \t'
+                   'action_mu_grad_norm: {:.2f} \t action_log_std_grad_norm: {:.2f} \t value_grad_norm: {:.2f}'
+                   ).format(
+                episode, sample_length, avg_length, avg_reward, best_reward,
+                action_mu_grad_norm, action_log_std_grad_norm, value_grad_norm
+                ))
             avg_length_list = []
             cumulative_reward_list = []  # Reset cumulative reward after logging
-            print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
-                  'value_grad_norm', round(value_grad_norm,2))
 
         if checkpoint_interval > 0 and (avg_reward > best_reward):
             print('avg_reward', avg_reward, '> best_reward', best_reward)

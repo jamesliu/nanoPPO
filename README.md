@@ -26,7 +26,7 @@ pip install .
 
 ## Usage
 
-Here's a simple example of how to use nanoPPO to train an agent.
+Here are examples of how to use nanoPPO to train an agent.
 
 On the MountaionCarContinuous-v0 environment:
 
