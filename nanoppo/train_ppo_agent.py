@@ -3,7 +3,7 @@ import os
 import pickle
 import click
 import wandb
-from nanoppo.ppo_agent_with_network import PPOAgent
+from nanoppo.continuous_action_ppo import PPOAgent
 from nanoppo.normalizer import Normalizer
 from nanoppo.ppo_utils import compute_gae
 from nanoppo.envs.point_mass2d import PointMass2DEnv 
@@ -183,8 +183,9 @@ def cli(env_name, max_episodes, policy_lr, value_lr, vl_coef,
                                                 wandb_log=wandb_log)
     # Load the best weights
     ppo.load(model_file)
+    print("Loaded best weights from", model_file)
     metrics = pickle.load(open(metrics_file, 'rb'))
-    print("Loaded best weights!")
+    print("Loaded metrics from", metrics_file)
     best_reward = metrics['best_reward']
     episode = metrics['episode']
     print("best_reward", best_reward, 'episode', episode)

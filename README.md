@@ -26,7 +26,27 @@ pip install .
 
 ## Usage
 
-Here's a simple example of how to use nanoPPO to train an agent on the CartPole-v1 environment:
+Here's a simple example of how to use nanoPPO to train an agent.
+
+On the MountaionCarContinuous-v0 environment:
+
+```
+    from nanoppo.train_ppo_agent import train_agent
+    ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
+                                                vl_coef=vl_coef,
+                                                checkpoint_dir=checkpoint_dir, 
+                                                checkpoint_interval=checkpoint_interval, log_interval=log_interval, 
+                                                wandb_log=wandb_log)
+    ppo.load(model_file)
+    print("Loaded best weights from", model_file)
+    metrics = pickle.load(open(metrics_file, 'rb'))
+    print("Loaded metrics from", metrics_file)
+    best_reward = metrics['best_reward']
+    episode = metrics['episode']
+    print("best_reward", best_reward, 'episode', episode)
+```
+
+On the CartPole-v1 environment:
 
 ```python
 from nanoppo.discrete_action_ppo import PPO
@@ -45,7 +65,7 @@ examples/train_mountaincar.sh
 ```
 python nanoppo/train_ppo_agent.py --env_name=MountainCarContinuous-v0 --policy_lr=0.0005 --value_lr=0.0005 --max_episodes=50 --vl_coef=0.5 --wandb_log
 ```
-![repro124m](assets/MountainCar-Continuous-v0.png)
+![mountaincar](assets/MountainCarContinuous-v0.png)
 
 ## Documentation
 
@@ -66,4 +86,5 @@ For support, questions, or feature requests, please open an issue on our [GitHub
 ## Changelog
 
 See the [releases](https://github.com/jamesliu/nanoPPO/releases) page for a detailed changelog of each version.
+
 
