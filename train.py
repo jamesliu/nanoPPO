@@ -35,7 +35,7 @@ from nanoppo.reward_shaper import TDRewardShaper, MountainCarAdvancedRewardShape
 )
 @click.option("--clip_param", default=0.2, help="Clipping parameter for PPO.")
 @click.option("--vf_coef", default=0.5, help="Value function coefficient.")
-@click.option("--entropy_coef", default=1e-3, help="Entropy coefficient.")
+@click.option("--entropy_coef", default=1e-2, help="Entropy coefficient.")
 @click.option(
     "--max_grad_norm", default=1000, help="Maximum gradient norm for clipping."
 )

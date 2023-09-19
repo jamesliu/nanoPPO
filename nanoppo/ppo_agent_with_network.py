@@ -39,7 +39,6 @@ class PPOAgent:
             logprobs, state_values = self.policy.evaluate(states, actions)
             # Calculate the advantages
             advantages = returns - state_values.detach()
-    
             # Normalize the advantages (optional, but can help in training stability)
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
     
@@ -53,7 +52,7 @@ class PPOAgent:
             policy_loss = -torch.min(surr1, surr2).mean()
     
             # Value loss
-            value_loss = 0.1 * self.mse_loss(state_values, returns)
+            value_loss = 0.5 * self.mse_loss(state_values, returns)
     
             # Entropy (for exploration)
             entropy_loss = -0.01 * logprobs.mean()

@@ -119,7 +119,7 @@ class PPOAgent:
 
     @staticmethod
     def select_action(policy: PolicyNetwork, state, device, action_min, action_max):
-        state = torch.from_numpy(state).float().to(device)
+        state = torch.FloatTensor(state).to(device)
         dist = policy(state)
         action = dist.sample()
         # If action space is continuous, compute the log_prob of the action, sum(-1) to sum over all dimensions
@@ -266,7 +266,7 @@ class PPOAgent:
         entropy_loss = - entropy_coef * entropy
 
         # Entropy (for exploration)
-        approximate_entropy_loss = -0.01 * new_probs.mean()
+        approximate_entropy_loss = - entropy_coef * new_probs.mean()
 
         return (
             -torch.min(surr1, surr2).mean(),
@@ -274,9 +274,9 @@ class PPOAgent:
         )  # Add the entropy term to the policy loss
 
     @staticmethod
-    def compute_value_loss(value, states, returns, l1_loss):
+    def compute_value_loss(state_values, returns, l1_loss):
         # Compute value loss
-        v_pred = value(states).squeeze()
+        v_pred = state_values
         v_target = returns.squeeze()
         value_loss = (
             F.smooth_l1_loss(v_pred, v_target)
@@ -312,80 +312,61 @@ class PPOAgent:
         assert (
             len(rollout_buffer) >= batch_size
         ), f"Rollout buffer length {len(rollout_buffer)} is less than batch size {batch_size}"
+         # Sample from the rollout buffer
+        assert(len(rollout_buffer.buffer) == batch_size), f'Rollout buffer length {len(rollout_buffer.buffer)} is not equal to batch size {batch_size}'
+        (
+            batch_states,
+            batch_actions,
+            batch_log_probs,
+            batch_rewards,
+            batch_next_states,
+            batch_dones,
+        ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
+
+        # Compute returns and advantages from rollout buffer in order 
+        # Compute Advantage and Returns
+        returns = []
+        advs = []
+        g = 0
+        with torch.no_grad():
+            if use_gae:
+                # Compute Advantage using GAE and Returns
+                values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
+                next_value = value(batch_next_states[-1]).item()
+                masks = [1 - done.item() for done in batch_dones]
+                # Only compute returns once
+                returns = compute_gae(
+                    next_value, batch_rewards, masks, values, gamma, tau
+                )
+            else:
+                returns, advs = compute_returns_and_advantages_without_gae(
+                    batch_rewards,
+                    batch_states,
+                    batch_next_states,
+                    batch_dones,
+                    value,
+                    gamma,
+                )
+
+        returns = torch.tensor(returns, dtype=torch.float32).to(device)
         for sgd_iter in range(sgd_iters):
-            # Sample from the rollout buffer
-            (
-                batch_states,
-                batch_actions,
-                batch_probs,
-                batch_rewards,
-                batch_next_states,
-                batch_dones,
-            ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
-
-            # Compute Advantage and Returns
-            returns = []
-            advs = []
-            g = 0
-            # Compute returns and advantages from rollout buffer samples out of order
-            with torch.no_grad():
-                if use_gae:
-                    # Compute Advantage using GAE and Returns
-                    values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
-                    next_value = value(batch_next_states[-1]).item()
-                    masks = [1 - done.item() for done in batch_dones]
-                    returns = compute_gae(
-                        next_value, batch_rewards, masks, values, gamma, tau
-                    )
-                    advs = [ret - val for ret, val in zip(returns, values)]
-                else:
-                    returns, advs = compute_returns_and_advantages_without_gae(
-                        batch_rewards,
-                        batch_states,
-                        batch_next_states,
-                        batch_dones,
-                        value,
-                        gamma,
-                    )
-
-            returns = torch.tensor(returns, dtype=torch.float32).to(device)
-            advs = torch.tensor(advs, dtype=torch.float32).to(device)
-            advs = (advs - advs.mean()) / (advs.std() + 1e-10)
-
-            # Create mini-batches
-            num_samples = len(batch_rewards)
-            assert num_samples == batch_size
-            num_batches = num_samples // batch_size
-            assert num_batches == 1
+            
+            state_values = value(batch_states).squeeze()
+            advantages = returns - state_values.detach()
+            # Normalize the advantages (optional, but can help in training stability)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
 
             policy_loss, entropy_loss = PPOAgent.surrogate(
                 policy,
-                old_probs=batch_probs,
+                old_probs=batch_log_probs,
                 states=batch_states,
                 actions=batch_actions,
-                advs=advs,
+                advs=advantages,
                 clip_param=clip_param,
                 entropy_coef=entropy_coef,
             )
-            """
-            # clear the list of activation norms for each epoch
-            activation_norms = []
-            def hook(module, input, output):
-                if isinstance(output, Tuple):
-                    for o in output:
-                        activation_norms.append(o.norm().item())
-                else:
-                    activation_norms.append(output.norm().item())
-            # register activation norm hook
-            # add forward hook to each layer of the value network
-            hooks = []
-            for module in value.modules():
-                hooks.append(module.register_forward_hook(hook))
-            """
 
-            value_loss = PPOAgent.compute_value_loss(
-                value, batch_states, returns, l1_loss
-            )
+            value_loss = PPOAgent.compute_value_loss( state_values, returns, l1_loss)
 
             # Compute total loss and update parameters
             total_loss = policy_loss + entropy_loss + vf_coef * value_loss
@@ -463,6 +444,7 @@ class PPOAgent:
             iter_num += 1
 
         rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
+        assert(len(rollout_buffer) == 0)
         # Copy new weights into old policy
         policy_old.load_state_dict(policy.state_dict())
         return (

@@ -14,6 +14,7 @@ from nanoppo.ppo_utils import get_grad_norm
 #env = PointMass2DEnv()
 #env_name = "MountainCarContinuous-v0"
 env_name = "PointMass2D-v0"
+#env_name = "PointMass1D-v0"
 env = EnvironmentManager(env_name).setup_env()
 
 state_dim = env.observation_space.shape[0]
@@ -28,10 +29,10 @@ gamma = 0.99
 tau = 0.95
 K_epochs = 4
 eps_clip = 0.2
-max_timesteps = 2000
+max_timesteps = 1000
 update_timestep = 200
 log_interval = 20
-max_episodes = 1000  # Modify this value based on how many episodes you want to train
+max_episodes = 2000  # Modify this value based on how many episodes you want to train
 
 print('env', env_name)
 model_file = f"{env_name}_ppo.pth"
