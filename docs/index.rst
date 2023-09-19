@@ -23,3 +23,5 @@ Contents:
 
    installation
    reward_rescaling
+   contributing
+   changelog

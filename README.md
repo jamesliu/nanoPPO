@@ -69,6 +69,11 @@ python nanoppo/train_ppo_agent.py --env_name=MountainCarContinuous-v0 --policy_l
 ```
 ![mountaincar](assets/MountainCarContinuous-v0.png)
 
+examples/train_pointmass1d.sh
+
+
+examples/train_pointmass2d.sh
+
 ## Documentation
 
 Full documentation is available [here](https://nanoppo.readthedocs.io/en/latest/).
