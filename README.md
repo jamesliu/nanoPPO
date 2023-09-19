@@ -32,6 +32,8 @@ On the MountaionCarContinuous-v0 environment:
 
 ```
     from nanoppo.train_ppo_agent import train_agent
+    env_name = 'MountainCarContinuous-v0'
+    ...
     ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
                                                 vl_coef=vl_coef,
                                                 checkpoint_dir=checkpoint_dir, 
