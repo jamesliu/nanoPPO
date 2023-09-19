@@ -1,6 +1,7 @@
 import wandb
 import numpy as np
 
+
 class WandBLogger:
     @staticmethod
     def init(project, name, config):
@@ -26,7 +27,9 @@ class WandBLogger:
         )
 
     @staticmethod
-    def log_action_distribution_parameters(action_mean:np.ndarray, action_std:np.ndarray):
+    def log_action_distribution_parameters(
+        action_mean: np.ndarray, action_std: np.ndarray
+    ):
         """
         Logs the parameters (mean and standard deviation) of the action distribution using WandB.
 

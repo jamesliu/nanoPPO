@@ -9,13 +9,14 @@ from nanoppo.ppo_utils import compute_gae
 from nanoppo.environment_manager import EnvironmentManager
 from nanoppo.ppo_utils import get_grad_norm
 
+
 # Memory for PPO
 class PPOMemory:
     def __init__(self):
         self.states = []
         self.actions = []
         self.logprobs = []
-        self.next_states = [] 
+        self.next_states = []
         self.rewards = []
         self.is_terminals = []
 
@@ -28,64 +29,120 @@ class PPOMemory:
         del self.is_terminals[:]
 
     def append(self, state, action, logprob, next_state, reward, is_terminal):
-        assert(len(self.states) == len(self.actions) == len(self.logprobs) == len(self.next_states) == len(self.rewards) == len(self.is_terminals))
+        assert (
+            len(self.states)
+            == len(self.actions)
+            == len(self.logprobs)
+            == len(self.next_states)
+            == len(self.rewards)
+            == len(self.is_terminals)
+        )
         self.states.append(state)
         self.actions.append(action)
         self.logprobs.append(logprob)
-        self.next_states.append(next_state) 
-        self.rewards.append(torch.tensor(reward, dtype=torch.float32))  # Convert to tensor here
-        self.is_terminals.append(torch.tensor(is_terminal, dtype=torch.float32))  # Convert to tensor here
+        self.next_states.append(next_state)
+        self.rewards.append(
+            torch.tensor(reward, dtype=torch.float32)
+        )  # Convert to tensor here
+        self.is_terminals.append(
+            torch.tensor(is_terminal, dtype=torch.float32)
+        )  # Convert to tensor here
 
     def get(self):
-        return torch.stack(self.states), torch.stack(self.actions), torch.stack(self.logprobs), torch.stack(self.next_states), torch.stack(self.rewards), torch.stack(self.is_terminals)
+        return (
+            torch.stack(self.states),
+            torch.stack(self.actions),
+            torch.stack(self.logprobs),
+            torch.stack(self.next_states),
+            torch.stack(self.rewards),
+            torch.stack(self.is_terminals),
+        )
 
-def train_agent(env_name, max_episodes=500,
-                policy_lr=0.0005, value_lr=0.0005, betas=(0.9, 0.999), 
-                n_latent_var=128, gamma=0.99, tau=0.95, K_epochs=4, eps_clip=0.2, 
-                vl_coef=0.5, el_coef=0.001,
-                max_timesteps=2000, update_timestep=200,
-                checkpoint_dir='checkpoints', checkpoint_interval=-1, log_interval=-1, wandb_log=False):
+
+def train_agent(
+    env_name,
+    max_episodes=500,
+    policy_lr=0.0005,
+    value_lr=0.0005,
+    betas=(0.9, 0.999),
+    n_latent_var=128,
+    gamma=0.99,
+    tau=0.95,
+    K_epochs=4,
+    eps_clip=0.2,
+    vl_coef=0.5,
+    el_coef=0.001,
+    max_timesteps=2000,
+    update_timestep=200,
+    checkpoint_dir="checkpoints",
+    checkpoint_interval=-1,
+    log_interval=-1,
+    wandb_log=False,
+):
     # Setting up the environment and the agent
     env = EnvironmentManager(env_name).setup_env()
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-    print('state_dim', state_dim)
-    print('action_dim', action_dim)
-    
+    print("state_dim", state_dim)
+    print("action_dim", action_dim)
+
     checkpoint_path = os.path.join(checkpoint_dir, env_name)
     os.makedirs(checkpoint_path, exist_ok=True)
-    print('env', env_name)
+    print("env", env_name)
     model_file = f"{checkpoint_path}/models.pth"
     metrics_file = f"{checkpoint_path}/metrics.pkl"
     if wandb_log:
-        wandb.init(project="nanoPPO", name=env_name, 
-                   config={'policy_lr': policy_lr, 'value_lr': value_lr, 'betas': betas, 'gamma': gamma, 
-                           'tau': tau, 'K_epochs': K_epochs, 'eps_clip': eps_clip})
+        wandb.init(
+            project="nanoPPO",
+            name=env_name,
+            config={
+                "policy_lr": policy_lr,
+                "value_lr": value_lr,
+                "betas": betas,
+                "gamma": gamma,
+                "tau": tau,
+                "K_epochs": K_epochs,
+                "eps_clip": eps_clip,
+            },
+        )
 
     # Initialize a normalizer with the dimensionality of the state
     state_normalizer = Normalizer(state_dim)
-    ppo = PPOAgent(state_dim, action_dim, n_latent_var, policy_lr, value_lr, betas, gamma, K_epochs, eps_clip, state_normalizer, 
-                   action_low=env.action_space.low, action_high=env.action_space.high, 
-                   vl_coef=vl_coef, el_coef=el_coef,
-                   wandb_log=wandb_log)
+    ppo = PPOAgent(
+        state_dim,
+        action_dim,
+        n_latent_var,
+        policy_lr,
+        value_lr,
+        betas,
+        gamma,
+        K_epochs,
+        eps_clip,
+        state_normalizer,
+        action_low=env.action_space.low,
+        action_high=env.action_space.high,
+        vl_coef=vl_coef,
+        el_coef=el_coef,
+        wandb_log=wandb_log,
+    )
     print(policy_lr, value_lr, betas)
-    
+
     # Load the best weights
     if os.path.exists(model_file):
-        metrics = pickle.load(open(metrics_file, 'rb'))
-        best_reward = metrics['best_reward']
-        start_episode = metrics['episode'] + 1
+        metrics = pickle.load(open(metrics_file, "rb"))
+        best_reward = metrics["best_reward"]
+        start_episode = metrics["episode"] + 1
         ppo.load(model_file)
         print("Loaded best weights!", model_file, metrics_file)
     else:
-        best_reward = float('-inf')
+        best_reward = float("-inf")
         start_episode = 1
     print("best_reward", best_reward)
     print("start_episode", start_episode)
     print("log_interval", log_interval)
-    
+
     ppo_memory = PPOMemory()
-    
+
     # Training loop
     time_step = 0
     avg_length_list = []
@@ -94,7 +151,7 @@ def train_agent(env_name, max_episodes=500,
         state, info = env.reset()
         state_normalizer.observe(state)
         state = state_normalizer.normalize(state)
-    
+
         total_reward = 0
         state = torch.FloatTensor(state)
         for t in range(max_timesteps):
@@ -103,35 +160,53 @@ def train_agent(env_name, max_episodes=500,
             next_state, reward, done, truncated, _ = env.step(action_np)
             state_normalizer.observe(next_state)
             next_state = state_normalizer.normalize(next_state)
-    
+
             total_reward += reward
             next_state = torch.FloatTensor(next_state)
             ppo_memory.append(state, action, log_prob, next_state, reward, done)
-    
+
             state = next_state
             time_step += 1
-    
+
             # update if it's time
             if time_step % update_timestep == 0:
                 # Get state values for all states
                 next_state = torch.FloatTensor(next_state)
                 next_value = ppo.policy.get_value(next_state).detach().item()
-                values = [ppo.policy.get_value(torch.FloatTensor(state)).item() for state in ppo_memory.states]
+                values = [
+                    ppo.policy.get_value(torch.FloatTensor(state)).item()
+                    for state in ppo_memory.states
+                ]
                 masks = [1 - terminal.item() for terminal in ppo_memory.is_terminals]
-                returns = compute_gae(next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau)
+                returns = compute_gae(
+                    next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau
+                )
                 torch_returns = torch.tensor(returns, dtype=torch.float32)
-    
-                states, actions, log_probs, next_states, rewards, dones = ppo_memory.get()
-                ppo.update(states, actions, returns=torch_returns, next_states=next_states, dones=dones)
+
+                (
+                    states,
+                    actions,
+                    log_probs,
+                    next_states,
+                    rewards,
+                    dones,
+                ) = ppo_memory.get()
+                ppo.update(
+                    states,
+                    actions,
+                    returns=torch_returns,
+                    next_states=next_states,
+                    dones=dones,
+                )
                 ppo_memory.clear()
                 time_step = 0
             if done or truncated:
                 break
-    
+
         avg_length_list.append(t + 1)
-    
-        cumulative_reward_list.append(total_reward) 
-    
+
+        cumulative_reward_list.append(total_reward)
+
         avg_reward = float(sum(cumulative_reward_list) / len(cumulative_reward_list))
         avg_length = int(sum(avg_length_list) / len(avg_length_list))
         action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
@@ -141,32 +216,56 @@ def train_agent(env_name, max_episodes=500,
         if log_interval > 0 and (episode % log_interval == 0):
             sample_length = len(avg_length_list)
             avg_length = int(sum(avg_length_list) / sample_length)
-            print(('Episode {} \t samples:{} avg steps: {} \t avg reward: {:.2f} \t best reward: {:.2f} \t'
-                   'action_mu_grad_norm: {:.2f} \t action_log_std_grad_norm: {:.2f} \t value_grad_norm: {:.2f}'
-                   ).format(
-                episode, sample_length, avg_length, avg_reward, best_reward,
-                action_mu_grad_norm, action_log_std_grad_norm, value_grad_norm
-                ))
+            print(
+                (
+                    "Episode {} \t samples:{} avg steps: {} \t avg reward: {:.2f} \t best reward: {:.2f} \t"
+                    "action_mu_grad_norm: {:.2f} \t action_log_std_grad_norm: {:.2f} \t value_grad_norm: {:.2f}"
+                ).format(
+                    episode,
+                    sample_length,
+                    avg_length,
+                    avg_reward,
+                    best_reward,
+                    action_mu_grad_norm,
+                    action_log_std_grad_norm,
+                    value_grad_norm,
+                )
+            )
             avg_length_list = []
             cumulative_reward_list = []  # Reset cumulative reward after logging
 
         if checkpoint_interval > 0 and (avg_reward > best_reward):
-            print('avg_reward', avg_reward, '> best_reward', best_reward)
+            print("avg_reward", avg_reward, "> best_reward", best_reward)
             best_reward = avg_reward
-            metrics = {'best_reward': best_reward, 'episode':episode}
-            pickle.dump(metrics, open(metrics_file, 'wb'))
+            metrics = {"best_reward": best_reward, "episode": episode}
+            pickle.dump(metrics, open(metrics_file, "wb"))
             ppo.save(model_file)
             print("Saved best weights!", model_file, metrics_file)
 
         if wandb_log:
-            wandb.log({'avg_reward': avg_reward, 'best_reward': best_reward, 'avg_length': avg_length,
-                'action_mu_grad_norm': action_mu_grad_norm, 'action_log_std_grad_norm': action_log_std_grad_norm, 'value_grad_norm': value_grad_norm})
+            wandb.log(
+                {
+                    "avg_reward": avg_reward,
+                    "best_reward": best_reward,
+                    "avg_length": avg_length,
+                    "action_mu_grad_norm": action_mu_grad_norm,
+                    "action_log_std_grad_norm": action_log_std_grad_norm,
+                    "value_grad_norm": value_grad_norm,
+                }
+            )
     if wandb_log:
         wandb.finish()
     return ppo, model_file, metrics_file
-   
+
+
 @click.command()
-@click.option('--env_name', default="PointMass2D-v0", type=click.Choice(["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]))
+@click.option(
+    "--env_name",
+    default="PointMass2D-v0",
+    type=click.Choice(
+        ["PointMass1D-v0", "PointMass2D-v0", "Pendulum-v1", "MountainCarContinuous-v0"]
+    ),
+)
 @click.option("--max_episodes", default=100, help="Number of training episodes.")
 @click.option("--policy_lr", default=0.0005, help="Learning rate for policy network.")
 @click.option("--value_lr", default=0.0005, help="Learning rate for value network.")
@@ -174,22 +273,40 @@ def train_agent(env_name, max_episodes=500,
 @click.option("--checkpoint_dir", default="checkpoints", help="Path to checkpoint.")
 @click.option("--checkpoint_interval", default=100, help="Checkpoint interval.")
 @click.option("--log_interval", default=10, help="Logging interval.")
-@click.option("--wandb_log", is_flag=True, default=False, help="Flag to log results to wandb.")
-def cli(env_name, max_episodes, policy_lr, value_lr, vl_coef,
-        checkpoint_dir, checkpoint_interval, log_interval, wandb_log):
-    ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
-                                                vl_coef=vl_coef,
-                                                checkpoint_dir=checkpoint_dir, 
-                                                checkpoint_interval=checkpoint_interval, log_interval=log_interval, 
-                                                wandb_log=wandb_log)
+@click.option(
+    "--wandb_log", is_flag=True, default=False, help="Flag to log results to wandb."
+)
+def cli(
+    env_name,
+    max_episodes,
+    policy_lr,
+    value_lr,
+    vl_coef,
+    checkpoint_dir,
+    checkpoint_interval,
+    log_interval,
+    wandb_log,
+):
+    ppo, model_file, metrics_file = train_agent(
+        env_name=env_name,
+        max_episodes=max_episodes,
+        policy_lr=policy_lr,
+        value_lr=value_lr,
+        vl_coef=vl_coef,
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_interval=checkpoint_interval,
+        log_interval=log_interval,
+        wandb_log=wandb_log,
+    )
     # Load the best weights
     ppo.load(model_file)
     print("Loaded best weights from", model_file)
-    metrics = pickle.load(open(metrics_file, 'rb'))
+    metrics = pickle.load(open(metrics_file, "rb"))
     print("Loaded metrics from", metrics_file)
-    best_reward = metrics['best_reward']
-    episode = metrics['episode']
-    print("best_reward", best_reward, 'episode', episode)
- 
-if __name__ == '__main__':
+    best_reward = metrics["best_reward"]
+    episode = metrics["episode"]
+    print("best_reward", best_reward, "episode", episode)
+
+
+if __name__ == "__main__":
     cli()

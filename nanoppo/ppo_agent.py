@@ -19,7 +19,11 @@ from nanoppo.reward_shaper import RewardShaper, TDRewardShaper
 from nanoppo.normalizer import Normalizer
 from nanoppo.state_scaler import StateScaler
 from nanoppo.metrics_recorder import MetricsRecorder
-from nanoppo.ppo_utils import compute_gae, compute_returns_and_advantages_without_gae, get_grad_norm
+from nanoppo.ppo_utils import (
+    compute_gae,
+    compute_returns_and_advantages_without_gae,
+    get_grad_norm,
+)
 
 import warnings
 
@@ -56,7 +60,7 @@ class PPOAgent:
             self.optimizer,
             self.scheduler,
             self.policy_old,
-            self.value_old
+            self.value_old,
         ) = self.network_manager.setup_networks()
 
         self.rollout_buffer = RolloutBuffer(self.config["batch_size"])
@@ -64,18 +68,24 @@ class PPOAgent:
             self.reward_scaler = RewardScaler()
         else:
             self.reward_scaler = None
-        
+
         self.normalizer = None
         self.state_scaler = None
-        if self.config["scale_states"] == 'default':
+        if self.config["scale_states"] == "default":
             self.normalizer = Normalizer(self.env.observation_space.shape[0])
-        elif self.config["scale_states"] in ["env", "standard", "minmax", "robust", "quantile"]:
+        elif self.config["scale_states"] in [
+            "env",
+            "standard",
+            "minmax",
+            "robust",
+            "quantile",
+        ]:
             self.state_scaler = StateScaler(
                 self.env, sample_size=10000, scale_type=self.config["scale_states"]
             )
         else:
             raise ValueError(f"Unknown scale type: {self.config['scale_states']}")
-        
+
         self.metrics_log = self.config["metrics_log"]
         if self.metrics_log:
             self.metrics_recorder = MetricsRecorder()
@@ -113,7 +123,12 @@ class PPOAgent:
     @staticmethod
     def load_checkpoint(self, checkpoint_path, epoch=None):
         last_epoch = CheckpointManager.load_checkpoint(
-            self.policy, self.value, self.optimizer, self.normalizer, checkpoint_path, epoch
+            self.policy,
+            self.value,
+            self.optimizer,
+            self.normalizer,
+            checkpoint_path,
+            epoch,
         )
         return last_epoch
 
@@ -131,9 +146,9 @@ class PPOAgent:
 
         # action = torch.tanh(action)  # Pass the sampled action through the tanh activation function
         # action = action + torch.normal(mean=torch.zeros_like(action), std=action_std)  # Add noise to the action
-        #action = action.clamp(
+        # action = action.clamp(
         #    action_min, action_max
-        #)  # Clip the action to the valid range of the action space
+        # )  # Clip the action to the valid range of the action space
         return (
             action.cpu().detach().numpy(),
             log_prob.cpu().detach().numpy(),
@@ -148,16 +163,18 @@ class PPOAgent:
         new_probs = dist.log_prob(actions).sum(-1)
         ratio = torch.exp(new_probs - old_probs)  # Importance sampling ratio
         surr1 = ratio * advs
-        surr2 = torch.clamp(ratio, 1 - clip_param, 1 + clip_param) * advs # Trust region clipping
-        #entropy = dist.entropy().mean()  # Compute the mean entropy of the distribution
-        #entropy_loss = - entropy_coef * entropy
+        surr2 = (
+            torch.clamp(ratio, 1 - clip_param, 1 + clip_param) * advs
+        )  # Trust region clipping
+        # entropy = dist.entropy().mean()  # Compute the mean entropy of the distribution
+        # entropy_loss = - entropy_coef * entropy
 
         # Entropy (for exploration)
-        approximate_entropy_loss = - entropy_coef * new_probs.mean()
+        approximate_entropy_loss = -entropy_coef * new_probs.mean()
 
         return (
             -torch.min(surr1, surr2).mean(),
-            approximate_entropy_loss
+            approximate_entropy_loss,
         )  # Add the entropy term to the policy loss
 
     @staticmethod
@@ -165,7 +182,7 @@ class PPOAgent:
         # Compute value loss
         v_pred = state_values
         v_target = returns.squeeze()
-        value_loss =  F.mse_loss(v_pred, v_target)
+        value_loss = F.mse_loss(v_pred, v_target)
         return value_loss
 
     @staticmethod
@@ -200,16 +217,16 @@ class PPOAgent:
             batch_dones,
         ) = rollout_buffer.sample(batch_size, device=device, randomize=False)
 
-        # Compute returns once from rollout buffer in order 
+        # Compute returns once from rollout buffer in order
         if use_gae:
             # Compute Advantage using GAE and Returns
-            values = value(batch_states).detach().squeeze().tolist() # For values + [next_value]
+            values = (
+                value(batch_states).detach().squeeze().tolist()
+            )  # For values + [next_value]
             next_value = value(batch_next_states[-1]).item()
             masks = [1 - done.item() for done in batch_dones]
             # Only compute returns once
-            returns = compute_gae(
-                next_value, batch_rewards, masks, values, gamma, tau
-            )
+            returns = compute_gae(next_value, batch_rewards, masks, values, gamma, tau)
         else:
             returns, advs = compute_returns_and_advantages_without_gae(
                 batch_rewards,
@@ -246,7 +263,7 @@ class PPOAgent:
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
-            #if scheduler is not None:
+            # if scheduler is not None:
             #    scheduler.step()
 
             """
@@ -271,7 +288,6 @@ class PPOAgent:
             activation_norm = sum(activation_norms) / len(activation_norms)
             """
 
-
             if wandb_log:
                 # Log the losses and gradients to WandB
                 WandBLogger.log(
@@ -294,7 +310,9 @@ class PPOAgent:
                     }
                 )
                 # wandb.log({"Gradients/ValueNet": wandb.Histogram(value.fc1.weight.grad.detach().cpu().numpy())})
-                log_std_value = policy.action_log_std(batch_states).detach().cpu().numpy()
+                log_std_value = (
+                    policy.action_log_std(batch_states).detach().cpu().numpy()
+                )
                 WandBLogger.log({"Policy/Log_Std": log_std_value})
             # log the learning rate to wandb
             lrs = {}
@@ -316,7 +334,7 @@ class PPOAgent:
             iter_num += 1
 
         rollout_buffer.clear()  # clear the rollout buffer, all data is from the current policy
-        assert(len(rollout_buffer) == 0)
+        assert len(rollout_buffer) == 0
         # Copy new weights into old policy
         policy_old.load_state_dict(policy.state_dict())
         return (
@@ -327,7 +345,7 @@ class PPOAgent:
 
     @staticmethod
     def train_with_epoch(
-        project:str,
+        project: str,
         env: gym.Env,
         env_name: str,
         env_config: dict,
@@ -354,7 +372,7 @@ class PPOAgent:
         use_gae: bool,
         tau: float,
         verbose: int,
-        checkpoint_interval:int,
+        checkpoint_interval: int,
         checkpoint_dir: str,
         log_interval: int,
         resume_training: bool,
@@ -367,9 +385,19 @@ class PPOAgent:
         checkpoint_path = os.path.join(checkpoint_dir, project, env_name)
         if resume_training:
             if verbose > 0:
-                print("Resuming training from checkpoint...", checkpoint_path, 'from latest' if resume_epoch <= 0 else f'from epoch {resume_epoch}')
+                print(
+                    "Resuming training from checkpoint...",
+                    checkpoint_path,
+                    "from latest"
+                    if resume_epoch <= 0
+                    else f"from epoch {resume_epoch}",
+                )
             last_epoch = CheckpointManager.load_checkpoint(
-                policy, value, optimizer, checkpoint_path, None if resume_epoch <=0 else resume_epoch - 1
+                policy,
+                value,
+                optimizer,
+                checkpoint_path,
+                None if resume_epoch <= 0 else resume_epoch - 1,
             )
             last_epoch += 1
         else:
@@ -404,7 +432,7 @@ class PPOAgent:
                 raise ValueError("No state scaler or normalizer is provided")
             done = False
             total_reward = 0
-            
+
             for step in range(max_timesteps):
                 action, log_prob, action_mean, action_std = PPOAgent.select_action(
                     policy,
@@ -479,13 +507,13 @@ class PPOAgent:
                         wandb_log=wandb_log,
                         metrics_recorder=metrics_recorder,
                     )
- 
+
                 if done or truncated:
                     break
 
             episode_steps.append(step + 1)
-            episode_rewards.append(total_reward) 
-                
+            episode_rewards.append(total_reward)
+
             # Average of last 10 episodes or all episodes if less than 10 episodes are available
             if len(episode_rewards) >= 20 and (epoch + 1) % log_interval == 0:
                 average_reward = sum(episode_rewards[-20:]) / len(episode_rewards[-20:])
@@ -497,7 +525,9 @@ class PPOAgent:
                     report_func(mean_reward=average_reward)  # Reporting the reward
 
             if verbose > 0 and (epoch + 1) % log_interval == 0:
-                print("env", env_name,
+                print(
+                    "env",
+                    env_name,
                     "epoch",
                     epoch + 1,
                     "reward episodes",
@@ -505,7 +535,7 @@ class PPOAgent:
                     "everage steps",
                     np.mean(episode_steps),
                     "average reward",
-                    round(average_reward,2),
+                    round(average_reward, 2),
                     "train epochs",
                     epoch - last_epoch + 1,
                     "train iters",
@@ -517,18 +547,27 @@ class PPOAgent:
                 )
 
                 action_mu_grad_norm = get_grad_norm(policy.action_mu.parameters())
-                action_log_std_grad_norm = get_grad_norm(policy.action_log_std.parameters())
+                action_log_std_grad_norm = get_grad_norm(
+                    policy.action_log_std.parameters()
+                )
                 value_grad_norm = get_grad_norm(value.parameters())
-                print('action_mu_grad_norm', round(action_mu_grad_norm,2), 'action_log_std_grad_norm', round(action_log_std_grad_norm,2), 
-                      'value_grad_norm', round(value_grad_norm,2))
+                print(
+                    "action_mu_grad_norm",
+                    round(action_mu_grad_norm, 2),
+                    "action_log_std_grad_norm",
+                    round(action_log_std_grad_norm, 2),
+                    "value_grad_norm",
+                    round(value_grad_norm, 2),
+                )
 
-            if checkpoint_interval > 0: 
+            if checkpoint_interval > 0:
                 if average_reward > best_reward:
                     print("Saving checkpoint...", checkpoint_path)
-                    print('avg_reward', average_reward, '> best_reward', best_reward)
+                    print("avg_reward", average_reward, "> best_reward", best_reward)
                     best_reward = average_reward
                     CheckpointManager.save_checkpoint(
-                    policy, value, optimizer, normalizer, epoch, checkpoint_path)
+                        policy, value, optimizer, normalizer, epoch, checkpoint_path
+                    )
 
         end = time()
         print("Training time: ", round((end - start) / 60, 2), "minutes")
@@ -558,8 +597,8 @@ class PPOAgent:
             normalizer=self.normalizer,
             policy=self.policy,
             value=self.value,
-            policy_old = self.policy_old,
-            value_old = self.value_old,
+            policy_old=self.policy_old,
+            value_old=self.value_old,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
             epochs=epochs,
@@ -578,7 +617,7 @@ class PPOAgent:
             tau=self.config["tau"],
             verbose=self.config["verbose"],
             checkpoint_interval=self.config["checkpoint_interval"],
-            checkpoint_dir=self.config['checkpoint_dir'],
+            checkpoint_dir=self.config["checkpoint_dir"],
             log_interval=self.config["log_interval"],
             resume_training=self.config["resume_training"],
             resume_epoch=self.config["resume_epoch"],

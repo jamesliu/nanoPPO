@@ -19,7 +19,9 @@ class CheckpointManager:
         torch.save(checkpoint, f"{checkpoint_path}/checkpoint_epoch{epoch}.pt")
 
     @staticmethod
-    def load_checkpoint(policy, value, optimizer, normalizer, checkpoint_path, epoch=None):
+    def load_checkpoint(
+        policy, value, optimizer, normalizer, checkpoint_path, epoch=None
+    ):
         # Find the latest checkpoint file
         if epoch is None:
             checkpoint_files = sorted(

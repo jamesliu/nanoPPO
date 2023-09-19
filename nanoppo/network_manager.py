@@ -7,7 +7,15 @@ from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR
 
 
 class NetworkManager:
-    def __init__(self, env, optimizer_config, hidden_size, init_type, device, network_type="actor_critic"):
+    def __init__(
+        self,
+        env,
+        optimizer_config,
+        hidden_size,
+        init_type,
+        device,
+        network_type="actor_critic",
+    ):
         self.network_type = network_type
         self.env = env
         self.optimizer_config = optimizer_config
@@ -26,30 +34,40 @@ class NetworkManager:
             action_dim = self.env.action_space.n
 
         if self.network_type == "actor_critic":
-            policy = ActorCritic(
-                state_dim=observation_space.shape[0],
-                action_dim=action_dim,
-                n_latent_var=self.hidden_size,
-                action_low=self.env.action_space.low,
-                action_high=self.env.action_space.high
-            ).float().to(self.device)
+            policy = (
+                ActorCritic(
+                    state_dim=observation_space.shape[0],
+                    action_dim=action_dim,
+                    n_latent_var=self.hidden_size,
+                    action_low=self.env.action_space.low,
+                    action_high=self.env.action_space.high,
+                )
+                .float()
+                .to(self.device)
+            )
 
             value = policy.value_layer
-            
+
             # Separate the parameters of the actor and critic networks
-            actor_params = list(policy.action_mu.parameters()) + list(policy.action_log_std.parameters())
+            actor_params = list(policy.action_mu.parameters()) + list(
+                policy.action_log_std.parameters()
+            )
             critic_params = list(policy.value_layer.parameters())
 
-            policy_old = ActorCritic(
-                state_dim=observation_space.shape[0],
-                action_dim=action_dim,
-                n_latent_var=self.hidden_size,
-                action_low=self.env.action_space.low,
-                action_high=self.env.action_space.high
-            ).float().to(self.device)
+            policy_old = (
+                ActorCritic(
+                    state_dim=observation_space.shape[0],
+                    action_dim=action_dim,
+                    n_latent_var=self.hidden_size,
+                    action_low=self.env.action_space.low,
+                    action_high=self.env.action_space.high,
+                )
+                .float()
+                .to(self.device)
+            )
             policy_old.load_state_dict(policy.state_dict())
             value_old = policy_old.value_layer
-        
+
         else:
             policy = PolicyNetwork(
                 observation_space.shape[0], action_dim, init_type=self.init_type
@@ -61,10 +79,10 @@ class NetworkManager:
             ).to(self.device)
             actor_params = list(policy.parameters())
             critic_params = list(value.parameters())
-    
+
         policy_lr = self.optimizer_config["policy_lr"]
         value_lr = self.optimizer_config["value_lr"]
-    
+
         optimizer = optim.Adam(
             [
                 {"params": actor_params, "lr": policy_lr},
@@ -74,7 +92,7 @@ class NetworkManager:
             eps=self.optimizer_config["epsilon"],
             weight_decay=self.optimizer_config["weight_decay"],
         )
-    
+
         if self.optimizer_config["scheduler"] is None:
             scheduler = None
         elif self.optimizer_config["scheduler"] == "exponential":

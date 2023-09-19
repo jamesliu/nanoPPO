@@ -30,7 +30,7 @@ Here are examples of how to use nanoPPO to train an agent.
 
 On the MountaionCarContinuous-v0 environment:
 
-```
+```python
     from nanoppo.train_ppo_agent import train_agent
     env_name = 'MountainCarContinuous-v0'
     ...
@@ -71,8 +71,15 @@ python nanoppo/train_ppo_agent.py --env_name=MountainCarContinuous-v0 --policy_l
 
 examples/train_pointmass1d.sh
 
+```
+python nanoppo/train_ppo_agent.py --env_name=PointMass1D-v0 --policy_lr=0.0005 --value_lr=0.0005 --max_episodes=50 --vl_coef=0.5 --wandb_log
+```
 
 examples/train_pointmass2d.sh
+
+```
+python nanoppo/train_ppo_agent.py --env_name=PointMass2D-v0 --policy_lr=0.0005 --value_lr=0.0005 --max_episodes=50 --vl_coef=0.5 --wandb_log
+```
 
 ## Documentation
 

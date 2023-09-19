@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class Normalizer:
     def __init__(self, dim):
         # Mean, standard deviation, and count for each dimension
@@ -24,14 +25,14 @@ class Normalizer:
 
     def get_state(self):
         return {
-            'n': self.n,
-            'mean': self.mean,
-            'mean_diff': self.mean_diff,
-            'variance': self.variance,
+            "n": self.n,
+            "mean": self.mean,
+            "mean_diff": self.mean_diff,
+            "variance": self.variance,
         }
-    
+
     def set_state(self, state):
-        self.n = state['n']
-        self.mean = state['mean']
-        self.mean_diff = state['mean_diff']
-        self.variance = state['variance']
+        self.n = state["n"]
+        self.mean = state["mean"]
+        self.mean_diff = state["mean_diff"]
+        self.variance = state["variance"]

@@ -25,7 +25,9 @@ class RolloutBuffer:
         actions_t = torch.tensor(np.array(actions, dtype=np.float32), device=device)
         log_probs_t = torch.tensor(np.array(log_probs, dtype=np.float32), device=device)
         rewards_t = torch.tensor(np.array(rewards, dtype=np.float32), device=device)
-        next_states_t = torch.tensor(np.array(next_states, dtype=np.float32), device=device)
+        next_states_t = torch.tensor(
+            np.array(next_states, dtype=np.float32), device=device
+        )
         dones_t = torch.tensor(np.array(dones, dtype=np.float32), device=device)
         return states_t, actions_t, log_probs_t, rewards_t, next_states_t, dones_t
 

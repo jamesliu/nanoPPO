@@ -14,6 +14,7 @@ test = ["pytest"]
 
 [tool.poetry]
 name = "nanoPPO"
-version = "0.13"
+version = "0.13.post2"
 description = "A flexible and efficient implementation of the Proximal Policy Optimization (PPO) algorithm for reinforcement learning."
+readme = "README.md"
 authors = ["James Liu"]
