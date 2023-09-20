@@ -31,21 +31,27 @@ Here are examples of how to use nanoPPO to train an agent.
 On the MountaionCarContinuous-v0 environment:
 
 ```python
-    from nanoppo.train_ppo_agent import train_agent
-    env_name = 'MountainCarContinuous-v0'
-    ...
-    ppo, model_file, metrics_file = train_agent(env_name=env_name, max_episodes=max_episodes, policy_lr=policy_lr, value_lr=value_lr,
-                                                vl_coef=vl_coef,
-                                                checkpoint_dir=checkpoint_dir, 
-                                                checkpoint_interval=checkpoint_interval, log_interval=log_interval, 
-                                                wandb_log=wandb_log)
-    ppo.load(model_file)
-    print("Loaded best weights from", model_file)
-    metrics = pickle.load(open(metrics_file, 'rb'))
-    print("Loaded metrics from", metrics_file)
-    best_reward = metrics['best_reward']
-    episode = metrics['episode']
-    print("best_reward", best_reward, 'episode', episode)
+from nanoppo.train_ppo_agent import train_agent
+import pickle
+
+ppo, model_file, metrics_file = train_agent(
+    env_name="MountainCarContinuous-v0",
+    max_episodes=50,
+    policy_lr=0.0005,
+    value_lr=0.0005,
+    vl_coef=0.5,
+    checkpoint_dir="checkpoints",
+    checkpoint_interval=10,
+    log_interval=10,
+    wandb_log=False,
+)
+ppo.load(model_file)
+print("Loaded best weights from", model_file)
+metrics = pickle.load(open(metrics_file, "rb"))
+print("Loaded metrics from", metrics_file)
+best_reward = metrics["best_reward"]
+episode = metrics["episode"]
+print("best_reward", best_reward, "episode", episode)
 ```
 
 On the CartPole-v1 environment:
