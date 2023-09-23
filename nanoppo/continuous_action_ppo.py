@@ -121,8 +121,11 @@ class PPOAgent:
             path,
         )
 
-    def load(self, path):
-        checkpoint = torch.load(path)
+    def load(self, path, device=None):
+        if device:
+            checkpoint = torch.load(path, map_location=device)
+        else:
+            checkpoint = torch.load(path)
         self.policy.load_state_dict(checkpoint["model_state_dict"])
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

@@ -9,16 +9,16 @@ from nanoppo.ppo_utils import compute_gae
 from nanoppo.environment_manager import EnvironmentManager
 from nanoppo.ppo_utils import get_grad_norm
 
-
 # Memory for PPO
 class PPOMemory:
-    def __init__(self):
+    def __init__(self, device):
         self.states = []
         self.actions = []
         self.logprobs = []
         self.next_states = []
         self.rewards = []
         self.is_terminals = []
+        self.device = device
 
     def clear(self):
         del self.states[:]
@@ -42,10 +42,10 @@ class PPOMemory:
         self.logprobs.append(logprob)
         self.next_states.append(next_state)
         self.rewards.append(
-            torch.tensor(reward, dtype=torch.float32)
+            torch.tensor(reward, dtype=torch.float32).to(self.device)
         )  # Convert to tensor here
         self.is_terminals.append(
-            torch.tensor(is_terminal, dtype=torch.float32)
+            torch.tensor(is_terminal, dtype=torch.float32).to(self.device)
         )  # Convert to tensor here
 
     def get(self):
@@ -79,7 +79,10 @@ def train_agent(
     checkpoint_interval=-1,
     log_interval=-1,
     wandb_log=False,
+    device=None
 ):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Setting up the environment and the agent
     env = EnvironmentManager(env_name, env_config).setup_env()
     state_dim = env.observation_space.shape[0]
@@ -127,6 +130,8 @@ def train_agent(
         wandb_log=wandb_log,
     )
     print(policy_lr, value_lr, betas)
+    ppo.policy.to(device)
+    print('ppo.policy use device', device)
 
     # Load the best weights
     if os.path.exists(model_file):
@@ -142,7 +147,7 @@ def train_agent(
     print("start_episode", start_episode)
     print("log_interval", log_interval)
 
-    ppo_memory = PPOMemory()
+    ppo_memory = PPOMemory(device= device)
 
     # Training loop
     time_step = 0
@@ -154,16 +159,17 @@ def train_agent(
         state = state_normalizer.normalize(state)
 
         total_reward = 0
-        state = torch.FloatTensor(state)
+        state = torch.FloatTensor(state).to(device)
+
         for t in range(max_timesteps):
             action, log_prob = ppo.policy.act(state)
-            action_np = action.detach().numpy()
+            action_np = action.detach().cpu().numpy()
             next_state, reward, done, truncated, _ = env.step(action_np)
             state_normalizer.observe(next_state)
             next_state = state_normalizer.normalize(next_state)
 
             total_reward += reward
-            next_state = torch.FloatTensor(next_state)
+            next_state = torch.FloatTensor(next_state).to(device)
             ppo_memory.append(state, action, log_prob, next_state, reward, done)
 
             state = next_state
@@ -172,10 +178,9 @@ def train_agent(
             # update if it's time
             if time_step % update_timestep == 0:
                 # Get state values for all states
-                next_state = torch.FloatTensor(next_state)
                 next_value = ppo.policy.get_value(next_state).detach().item()
                 values = [
-                    ppo.policy.get_value(torch.FloatTensor(state)).item()
+                    ppo.policy.get_value(state).item()
                     for state in ppo_memory.states
                 ]
                 masks = [1 - terminal.item() for terminal in ppo_memory.is_terminals]
@@ -299,6 +304,7 @@ def cli(
         checkpoint_interval=checkpoint_interval,
         log_interval=log_interval,
         wandb_log=wandb_log,
+        device='cpu'
     )
     # Load the best weights
     ppo.load(model_file)
