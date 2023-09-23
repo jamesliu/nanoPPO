@@ -131,6 +131,7 @@ def train_agent(
     )
     print(policy_lr, value_lr, betas)
     ppo.policy.to(device)
+    ppo.policy_old.to(device)
     print('ppo.policy use device', device)
 
     # Load the best weights
@@ -187,7 +188,7 @@ def train_agent(
                 returns = compute_gae(
                     next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau
                 )
-                torch_returns = torch.tensor(returns, dtype=torch.float32)
+                torch_returns = torch.tensor(returns, dtype=torch.float32).to(device)
 
                 (
                     states,
