@@ -61,6 +61,7 @@ class PPOMemory:
 
 def train_agent(
     env_name,
+    env_config = None,
     max_episodes=500,
     policy_lr=0.0005,
     value_lr=0.0005,
@@ -80,7 +81,7 @@ def train_agent(
     wandb_log=False,
 ):
     # Setting up the environment and the agent
-    env = EnvironmentManager(env_name).setup_env()
+    env = EnvironmentManager(env_name, env_config).setup_env()
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     print("state_dim", state_dim)
@@ -207,7 +208,8 @@ def train_agent(
 
         cumulative_reward_list.append(total_reward)
 
-        avg_reward = float(sum(cumulative_reward_list) / len(cumulative_reward_list))
+        num_cumulative_rewards = len(cumulative_reward_list)
+        avg_reward = float(sum(cumulative_reward_list[-100:]) / 100)
         avg_length = int(sum(avg_length_list) / len(avg_length_list))
         action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
         action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
@@ -218,8 +220,9 @@ def train_agent(
             avg_length = int(sum(avg_length_list) / sample_length)
             print(
                 (
-                    "Episode {} \t samples:{} avg steps: {} \t avg reward: {:.2f} \t best reward: {:.2f} \t"
-                    "action_mu_grad_norm: {:.2f} \t action_log_std_grad_norm: {:.2f} \t value_grad_norm: {:.2f}"
+                    "Episode {} \t samples:{} avg steps: {} \t avg reward: {:.3f} \t best reward: {:.3f} \t"
+                    "action_mu_grad_norm: {:.2f} \t action_log_std_grad_norm: {:.2f} \t value_grad_norm: {:.2f} \t"
+                    "num cumulative rewards: {}"
                 ).format(
                     episode,
                     sample_length,
@@ -229,12 +232,11 @@ def train_agent(
                     action_mu_grad_norm,
                     action_log_std_grad_norm,
                     value_grad_norm,
+                    num_cumulative_rewards
                 )
             )
-            avg_length_list = []
-            cumulative_reward_list = []  # Reset cumulative reward after logging
 
-        if checkpoint_interval > 0 and (avg_reward > best_reward):
+        if checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 100):
             print("avg_reward", avg_reward, "> best_reward", best_reward)
             best_reward = avg_reward
             metrics = {"best_reward": best_reward, "episode": episode}
