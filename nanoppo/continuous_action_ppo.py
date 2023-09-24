@@ -27,6 +27,7 @@ class PPOAgent:
         action_high,
         vl_coef=0.5,
         el_coef=0.001,
+        device="cpu",
         wandb_log=False,
     ):
         self.gamma = gamma
@@ -37,13 +38,15 @@ class PPOAgent:
         self.action_high = action_high
         self.vl_coef = vl_coef
         self.el_coef = el_coef
-
+        self.device = device
+        action_low_tensor = torch.tensor(action_low, dtype=torch.float32).to(device)
+        action_high_tensor = torch.tensor(action_high, dtype=torch.float32).to(device)
         self.policy = ActorCritic(
-            state_dim, action_dim, n_latent_var, action_low, action_high
-        ).float()
+            state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor
+        ).float().to(device)
         self.policy_old = ActorCritic(
-            state_dim, action_dim, n_latent_var, action_low, action_high
-        ).float()
+            state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor
+        ).float().to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
 
         # Separate the parameters of the actor and critic networks
@@ -96,6 +99,12 @@ class PPOAgent:
             # Optimize policy network
             self.optimizer.zero_grad()
             loss.backward()
+
+            # Clip gradients to prevent exploding gradients
+            # Large gradients can cause the weights to update too aggressively. 
+            # Actions can have extream values e.g.(100, -0.10, ...)
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
+        
             self.optimizer.step()
             if self.wandb_log:
                 wandb.log(
@@ -121,11 +130,8 @@ class PPOAgent:
             path,
         )
 
-    def load(self, path, device=None):
-        if device:
-            checkpoint = torch.load(path, map_location=device)
-        else:
-            checkpoint = torch.load(path)
+    def load(self, path):
+        checkpoint = torch.load(path, map_location=self.device)
         self.policy.load_state_dict(checkpoint["model_state_dict"])
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
