@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, n_latent_var, action_low, action_high):
+    def __init__(self, state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, rescale=False):
         super(ActorCritic, self).__init__()
-        self.action_low = action_low
-        self.action_high = action_high
+        self.action_low_tensor = action_low_tensor
+        self.action_high_tensor = action_high_tensor
+        self.rescale = rescale
+        self.epsilon = 1e-5
 
         # Actor: outputs mean and log standard deviation
         self.action_mu = nn.Sequential(
@@ -47,18 +49,37 @@ class ActorCritic(nn.Module):
         dist = torch.distributions.Normal(mu, std)
         if action is None:
             action = dist.sample()
-            # Assuming env.action_space.low and env.action_space.high are numpy arrays
-            action_low_tensor = torch.tensor(self.action_low, dtype=torch.float32)
-            action_high_tensor = torch.tensor(self.action_high, dtype=torch.float32)
-            #action = torch.clamp(action, action_low_tensor, action_high_tensor)
+            # Rescale action to be in the desired range
+            if self.rescale:
+                action = self.rescale_action(action)
 
         if compute_logprobs:
             logprobs = dist.log_prob(action).sum(axis=-1)
             return action, logprobs
         
         return action
+    
+    def rescale_action(self, action):
+        """Rescale action from [-1, 1] to [action_low, action_high]"""
+        # It introduces training instability because of tanh's gradient
+        # Add a small epsilon to the output of tanh to ensure that you don't get values exactly equal to -1 or 1
+        # It helps to delays the inf policy loss or nan problem, but not completely solve it
+        # TODO: Disable rescale for now
+        action = torch.clamp(torch.tanh(action), -1 + self.epsilon, 1 - self.epsilon)
+
+        # Adjust the range for the epsilon-clamped tanh
+        adjusted_low = (-1 + self.epsilon)  # This becomes the new "minimum" of your tanh output
+        adjusted_high = (1 - self.epsilon)  # This becomes the new "maximum" of your tanh output
+    
+        # This ensures that the output of tanh is linearly mapped from [adjusted_low, adjusted_high] to [action_low, action_high]
+        action_range = self.action_high_tensor - self.action_low_tensor
+        action = self.action_low_tensor + (action - adjusted_low) / (adjusted_high - adjusted_low) * action_range
+        return action
 
     def evaluate(self, state, action):
+        if self.rescale:
+            assert (action >= self.action_low_tensor).all() and (action <= self.action_high_tensor).all(), "Actions are not rescaled!"
+
         mu = self.action_mu(state)
         log_std = self.action_log_std(state)
         std = log_std.exp()
