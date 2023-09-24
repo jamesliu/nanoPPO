@@ -127,12 +127,11 @@ def train_agent(
         action_high=env.action_space.high,
         vl_coef=vl_coef,
         el_coef=el_coef,
+        device=device,
         wandb_log=wandb_log,
     )
     print(policy_lr, value_lr, betas)
-    ppo.policy.to(device)
-    ppo.policy_old.to(device)
-    print('ppo.policy use device', device)
+    print('ppo use device', ppo.device)
 
     # Load the best weights
     if os.path.exists(model_file):
