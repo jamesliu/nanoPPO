@@ -63,6 +63,7 @@ def train_agent(
     env_name,
     env_config = None,
     max_episodes=500,
+    stop_reward = None,
     policy_lr=0.0005,
     value_lr=0.0005,
     betas=(0.9, 0.999),
@@ -214,7 +215,7 @@ def train_agent(
         cumulative_reward_list.append(total_reward)
 
         num_cumulative_rewards = len(cumulative_reward_list)
-        avg_reward = float(sum(cumulative_reward_list[-100:]) / 100)
+        avg_reward = float(sum(cumulative_reward_list[-30:]) / 30)
         avg_length = int(sum(avg_length_list) / len(avg_length_list))
         action_mu_grad_norm = get_grad_norm(ppo.policy.action_mu.parameters())
         action_log_std_grad_norm = get_grad_norm(ppo.policy.action_log_std.parameters())
@@ -241,13 +242,22 @@ def train_agent(
                 )
             )
 
-        if checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 100):
+        if (checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 30)):
             print("avg_reward", avg_reward, "> best_reward", best_reward)
             best_reward = avg_reward
-            metrics = {"best_reward": best_reward, "episode": episode}
+            metrics = {"best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
             pickle.dump(metrics, open(metrics_file, "wb"))
             ppo.save(model_file)
-            print("Saved best weights!", model_file, metrics_file)
+            print("Saved best weights!", best_reward, model_file, metrics_file)
+        
+        if stop_reward and (avg_reward > stop_reward) and (num_cumulative_rewards > 30):
+            print("avg_reward", avg_reward, "> stop_reward", stop_reward)
+            best_reward = stop_reward
+            metrics = {"best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
+            pickle.dump(metrics, open(metrics_file, "wb"))
+            ppo.save(model_file)
+            print("Saved best weights!", best_reward, model_file, metrics_file)
+            break
 
         if wandb_log:
             wandb.log(
