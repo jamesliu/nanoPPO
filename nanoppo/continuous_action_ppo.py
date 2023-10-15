@@ -40,6 +40,9 @@ class PPOAgent:
         self.vl_coef = vl_coef
         self.el_coef = el_coef
         self.device = device
+        # Initialize optimizer with a placeholder
+        self.optimizer = None
+
         action_low_tensor = torch.tensor(action_low, dtype=torch.float32).to(device)
         action_high_tensor = torch.tensor(action_high, dtype=torch.float32).to(device)
         self.policy = ActorCritic(
@@ -58,6 +61,7 @@ class PPOAgent:
 
         # Use the learning rates from the lr_scheduler if provided, or use the original learning rates
         if lr_scheduler is not None:
+            lr_scheduler.set_optimizer(self.optimizer)
             actor_lr = lr_scheduler.get_lr_actor()
             critic_lr = lr_scheduler.get_lr_critic()
         else:
