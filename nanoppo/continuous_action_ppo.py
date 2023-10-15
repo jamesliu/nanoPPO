@@ -27,6 +27,7 @@ class PPOAgent:
         action_high,
         vl_coef=0.5,
         el_coef=0.001,
+        lr_scheduler=None,  # Add lr_scheduler as an optional argument
         device="cpu",
         wandb_log=False,
     ):
@@ -55,17 +56,28 @@ class PPOAgent:
         )
         critic_params = list(self.policy.value_layer.parameters())
 
+        # Use the learning rates from the lr_scheduler if provided, or use the original learning rates
+        if lr_scheduler is not None:
+            actor_lr = lr_scheduler.get_lr_actor()
+            critic_lr = lr_scheduler.get_lr_critic()
+        else:
+            actor_lr = policy_lr
+            critic_lr = value_lr
+
         # Create an optimizer with different learning rates for the actor and critic
         self.optimizer = torch.optim.Adam(
             [
-                {"params": actor_params, "lr": policy_lr},
-                {"params": critic_params, "lr": value_lr},
+                {"params": actor_params, "lr": actor_lr},
+                {"params": critic_params, "lr": critic_lr},
             ],
             betas=betas,
         )
 
         self.mse_loss = nn.MSELoss()
         self.wandb_log = wandb_log
+
+        # Store the lr_scheduler if provided
+        self.lr_scheduler = lr_scheduler
 
     def update(self, states, actions, returns, next_states, dones):
         for _ in range(self.K_epochs):
@@ -118,6 +130,10 @@ class PPOAgent:
 
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
+        
+        # Update learning rates using the lr_scheduler if provided
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
 
     def save(self, path):
         # Saving

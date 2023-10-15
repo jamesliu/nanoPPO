@@ -79,6 +79,7 @@ def train_agent(
     checkpoint_dir="checkpoints",
     checkpoint_interval=-1,
     log_interval=-1,
+    lr_scheduler=None,
     wandb_log=False,
     device=None
 ):
@@ -128,6 +129,7 @@ def train_agent(
         action_high=env.action_space.high,
         vl_coef=vl_coef,
         el_coef=el_coef,
+        lr_scheduler=lr_scheduler,
         device=device,
         wandb_log=wandb_log,
     )
