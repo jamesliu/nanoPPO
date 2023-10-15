@@ -139,7 +139,7 @@ def train_agent(
     # Load the best weights
     if os.path.exists(model_file):
         metrics = pickle.load(open(metrics_file, "rb"))
-        best_reward = metrics["best_reward"]
+        best_reward = metrics["best_reward"] 
         start_episode = metrics["episode"] + 1
         ppo.load(model_file)
         print("Loaded best weights!", model_file, metrics_file)
@@ -250,7 +250,7 @@ def train_agent(
         if (checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 30)):
             print("avg_reward", avg_reward, "> best_reward", best_reward)
             best_reward = avg_reward
-            metrics = {"best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
+            metrics = {"train_reward", avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
             pickle.dump(metrics, open(metrics_file, "wb"))
             ppo.save(model_file)
             print("Saved best weights!", best_reward, model_file, metrics_file)
@@ -258,7 +258,7 @@ def train_agent(
         if stop_reward and (avg_reward > stop_reward) and (num_cumulative_rewards > 30):
             print("avg_reward", avg_reward, "> stop_reward", stop_reward)
             best_reward = stop_reward
-            metrics = {"best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
+            metrics = {"train_reward":avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
             pickle.dump(metrics, open(metrics_file, "wb"))
             ppo.save(model_file)
             print("Saved best weights!", best_reward, model_file, metrics_file)
