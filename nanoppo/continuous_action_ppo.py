@@ -45,6 +45,7 @@ class PPOAgent:
 
         action_low_tensor = torch.tensor(action_low, dtype=torch.float32).to(device)
         action_high_tensor = torch.tensor(action_high, dtype=torch.float32).to(device)
+
         self.policy = ActorCritic(
             state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor
         ).float().to(device)
@@ -61,9 +62,8 @@ class PPOAgent:
 
         # Use the learning rates from the lr_scheduler if provided, or use the original learning rates
         if lr_scheduler is not None:
-            lr_scheduler.set_optimizer(self.optimizer)
-            actor_lr = lr_scheduler.get_lr_actor()
-            critic_lr = lr_scheduler.get_lr_critic()
+            actor_lr = lr_scheduler.get_lr_actor(it=0)
+            critic_lr = lr_scheduler.get_lr_critic(it=0)
         else:
             actor_lr = policy_lr
             critic_lr = value_lr
@@ -82,6 +82,8 @@ class PPOAgent:
 
         # Store the lr_scheduler if provided
         self.lr_scheduler = lr_scheduler
+
+        self.iterations = 0
 
     def update(self, states, actions, returns, next_states, dones):
         for _ in range(self.K_epochs):
@@ -136,8 +138,15 @@ class PPOAgent:
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         # Update learning rates using the lr_scheduler if provided
+        self.iterations += 1
         if self.lr_scheduler is not None:
-            self.lr_scheduler.step()
+            self.lr_scheduler.step(self.optimizer, self.iterations)
+
+        # Log the learning rates for each param_group if wandb_log is enabled
+        if self.wandb_log:
+            for i, param_group in enumerate(self.optimizer.param_groups):
+                learning_rate = param_group['lr']
+                wandb.log({f"learning_rate_group_{i}": learning_rate})
 
     def save(self, path):
         # Saving

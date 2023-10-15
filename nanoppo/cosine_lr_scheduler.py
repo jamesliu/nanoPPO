@@ -6,7 +6,6 @@ class CosineLRScheduler:
         self.lr_decay_iters = lr_decay_iters
         self.learning_rate = learning_rate
         self.min_lr = min_lr
-        self.optimizer = None  # Placeholder for the optimizer
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
@@ -26,10 +25,7 @@ class CosineLRScheduler:
         # Example: return self.learning_rate_critic * it / self.warmup_iters
         return self.get_lr_actor(it)
 
-    def step(self):
-        if self.optimizer is None:
-            raise ValueError("Optimizer has not been set.")
-        
-        for param_group in self.optimizer.param_groups:
-            actor_lr = self.get_lr_actor(param_group['iterations'])
+    def step(self, optimizer, iterations):
+        for param_group in optimizer.param_groups:
+            actor_lr = self.get_lr_actor(it=iterations)
             param_group['lr'] = actor_lr
