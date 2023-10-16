@@ -1,20 +1,10 @@
-[project]
-name = "nanoPPO"
-version = "0.14"
-description = "A flexible and efficient implementation of the Proximal Policy Optimization (PPO) algorithm for reinforcement learning."
-readme = "README.md"
-authors = [{name = "James Liu"}]
-license = {text = "Apache-2.0"}
-classifiers = [
-    "Development Status :: 4 - Beta"
-]
-
-[project.optional-dependencies]
-test = ["pytest"]
-
 [tool.poetry]
 name = "nanoPPO"
-version = "0.14"
+version = "0.15"
 description = "A flexible and efficient implementation of the Proximal Policy Optimization (PPO) algorithm for reinforcement learning."
 readme = "README.md"
 authors = ["James Liu"]
+license = "Apache-2.0"
+
+[tool.poetry.extras]
+test = ["pytest"]

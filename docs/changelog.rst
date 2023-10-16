@@ -4,6 +4,15 @@
  Changelog
 ===========
 
+.. _v0_15:
+
+0.13 (2023-10-15)
+-----------------
+
+- Adding Cosine Annealing LR Scheduler
+- Adding train_reward to metrics dictionary
+- Adding version number in __init__.py
+
 .. _v0_13:
 
 0.13 (2023-09-19)
