@@ -247,22 +247,23 @@ def train_agent(
                 )
             )
 
-        if (checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 30)):
-            print("avg_reward", avg_reward, "> best_reward", best_reward)
-            best_reward = avg_reward
-            metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
-            pickle.dump(metrics, open(metrics_file, "wb"))
-            ppo.save(model_file)
-            print("Saved best weights!", best_reward, model_file, metrics_file)
+        if num_cumulative_rewards > 30:
+            if checkpoint_interval > 0 and avg_reward > best_reward:
+                print("avg_reward", avg_reward, "> best_reward", best_reward)
+                best_reward = avg_reward
+                metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward": stop_reward}
+                pickle.dump(metrics, open(metrics_file, "wb"))
+                ppo.save(model_file)
+                print("Saved best weights!", best_reward, model_file, metrics_file)
         
-        if stop_reward and (avg_reward > stop_reward) and (num_cumulative_rewards > 30):
-            print("avg_reward", avg_reward, "> stop_reward", stop_reward)
-            best_reward = stop_reward
-            metrics = {"train_reward":avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
-            pickle.dump(metrics, open(metrics_file, "wb"))
-            ppo.save(model_file)
-            print("Saved best weights!", best_reward, model_file, metrics_file)
-            break
+            if stop_reward and avg_reward > stop_reward:
+                print("avg_reward", avg_reward, "> stop_reward", stop_reward)
+                best_reward = avg_reward
+                metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward": stop_reward}
+                pickle.dump(metrics, open(metrics_file, "wb"))
+                ppo.save(model_file)
+                print("Saved best weights!", best_reward, model_file, metrics_file)
+                break
 
         if wandb_log:
             wandb.log(
