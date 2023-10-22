@@ -200,12 +200,12 @@ class PPOAgent:
                         "total_loss": loss.item(),
                     }
                 )
-            
-            # Check for NaNs in the model's parameters
-            for name, param in self.policy.named_parameters():
-                if torch.isnan(param.data).any():
-                    print(f"NaN detected in the model parameters: {name}")
-                    breakpoint()
+            if self.debug: 
+                # Check for NaNs in the model's parameters
+                for name, param in self.policy.named_parameters():
+                    if torch.isnan(param.data).any():
+                        print(f"NaN detected in the model parameters: {name}")
+                        breakpoint()
 
         # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
