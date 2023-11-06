@@ -21,6 +21,7 @@ nanoPPO
    :caption: Contents:
 
    installation
+   readme
    reward_rescaling
    contributing
    changelog
