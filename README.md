@@ -56,7 +56,7 @@ print("best_reward", best_reward, "episode", episode)
 
 #### Use Custom LR Scheduler and Custom Policy
 
-* Set Cosine Learning Rate Scheduler
+* Set Cosine Annealing Learning Rate Scheduler
 * Set CausalAttention Policy instead of Linear Policy
 
 ```python
