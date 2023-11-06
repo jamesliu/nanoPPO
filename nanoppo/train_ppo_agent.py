@@ -147,7 +147,7 @@ def train_agent(
         start_episode = metrics["episode"] + 1
         ppo.load(model_file)
         print("Loaded best weights!", model_file, metrics_file)
-        if best_reward > stop_reward:
+        if stop_reward and (best_reward > stop_reward):
             print("Skipping Training: best_reward", best_reward, "> stop_reward", stop_reward)
             return ppo, model_file, metrics_file
     else:
