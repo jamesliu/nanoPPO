@@ -64,6 +64,7 @@ def train_agent(
     env_config = None,
     max_episodes=500,
     stop_reward = None,
+    policy_class = None,
     policy_lr=0.0005,
     value_lr=0.0005,
     betas=(0.9, 0.999),
@@ -81,13 +82,14 @@ def train_agent(
     log_interval=-1,
     lr_scheduler=None,
     wandb_log=False,
-    device=None
+    device=None,
+    debug=False,
 ):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Setting up the environment and the agent
     env = EnvironmentManager(env_name, env_config).setup_env()
-    state_dim = env.observation_space.shape[0]
+    state_dim = env.observation_space.shape[-1]
     action_dim = env.action_space.shape[0]
     print("state_dim", state_dim)
     print("action_dim", action_dim)
@@ -113,11 +115,12 @@ def train_agent(
         )
 
     # Initialize a normalizer with the dimensionality of the state
-    state_normalizer = Normalizer(state_dim)
+    state_normalizer = Normalizer(dim=env.observation_space.shape)
     ppo = PPOAgent(
         state_dim,
         action_dim,
         n_latent_var,
+        policy_class,
         policy_lr,
         value_lr,
         betas,
@@ -132,6 +135,7 @@ def train_agent(
         lr_scheduler=lr_scheduler,
         device=device,
         wandb_log=wandb_log,
+        debug = debug
     )
     print(policy_lr, value_lr, betas)
     print('ppo use device', ppo.device)
@@ -166,10 +170,13 @@ def train_agent(
 
         total_reward = 0
         state = torch.FloatTensor(state).to(device)
-
         for t in range(max_timesteps):
             action, log_prob = ppo.policy.act(state)
+
             action_np = action.detach().cpu().numpy()
+            if len(action_np.shape) > 1:
+                # (1, action_dim) -> (action_dim,)
+                action_np = action_np.squeeze()
             next_state, reward, done, truncated, _ = env.step(action_np)
             state_normalizer.observe(next_state)
             next_state = state_normalizer.normalize(next_state)
@@ -183,38 +190,43 @@ def train_agent(
 
             # update if it's time
             if time_step % update_timestep == 0:
-                # Get state values for all states
-                next_value = ppo.policy.get_value(next_state).detach().item()
-                values = [
-                    ppo.policy.get_value(state).item()
-                    for state in ppo_memory.states
-                ]
-                masks = [1 - terminal.item() for terminal in ppo_memory.is_terminals]
-                returns = compute_gae(
-                    next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau
-                )
-                torch_returns = torch.tensor(returns, dtype=torch.float32).to(device)
-
-                (
-                    states,
-                    actions,
-                    log_probs,
-                    next_states,
-                    rewards,
-                    dones,
-                ) = ppo_memory.get()
-                ppo.update(
-                    states,
-                    actions,
-                    returns=torch_returns,
-                    next_states=next_states,
-                    dones=dones,
-                )
-                ppo_memory.clear()
-                time_step = 0
+                try:
+                    # Get state values for all states
+                    next_value = ppo.policy.get_value(next_state).detach().item()
+                    values = [
+                        ppo.policy.get_value(state).item()
+                        for state in ppo_memory.states
+                    ]
+                    masks = [1 - terminal.item() for terminal in ppo_memory.is_terminals]
+                    returns = compute_gae(
+                        next_value, ppo_memory.rewards, masks, values, gamma=gamma, tau=tau
+                    )
+                    torch_returns = torch.tensor(returns, dtype=torch.float32).to(device)
+    
+                    (
+                        states,
+                        actions,
+                        log_probs,
+                        next_states,
+                        rewards,
+                        dones,
+                    ) = ppo_memory.get()
+                    ppo.update(
+                        states,
+                        actions,
+                        returns=torch_returns,
+                        next_states=next_states,
+                        dones=dones,
+                    )
+                    ppo_memory.clear()
+                    time_step = 0
+                except Exception as e:
+                    print("ppo.update error")
+                    print(e)
+                    breakpoint()
+                    raise e
             if done or truncated:
                 break
-
         avg_length_list.append(t + 1)
 
         cumulative_reward_list.append(total_reward)
@@ -247,23 +259,22 @@ def train_agent(
                 )
             )
 
-        if num_cumulative_rewards > 30:
-            if checkpoint_interval > 0 and avg_reward > best_reward:
-                print("avg_reward", avg_reward, "> best_reward", best_reward)
-                best_reward = avg_reward
-                metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward": stop_reward}
-                pickle.dump(metrics, open(metrics_file, "wb"))
-                ppo.save(model_file)
-                print("Saved best weights!", best_reward, model_file, metrics_file)
+        if (checkpoint_interval > 0 and (avg_reward > best_reward) and (num_cumulative_rewards > 30)):
+            print("avg_reward", avg_reward, "> best_reward", best_reward)
+            best_reward = avg_reward
+            metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
+            pickle.dump(metrics, open(metrics_file, "wb"))
+            ppo.save(model_file)
+            print("Saved best weights!", best_reward, model_file, metrics_file)
         
-            if stop_reward and avg_reward > stop_reward:
-                print("avg_reward", avg_reward, "> stop_reward", stop_reward)
-                best_reward = avg_reward
-                metrics = {"train_reward": avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward": stop_reward}
-                pickle.dump(metrics, open(metrics_file, "wb"))
-                ppo.save(model_file)
-                print("Saved best weights!", best_reward, model_file, metrics_file)
-                break
+        if stop_reward and (avg_reward > stop_reward) and (num_cumulative_rewards > 30):
+            print("avg_reward", avg_reward, "> stop_reward", stop_reward)
+            best_reward = avg_reward
+            metrics = {"train_reward":avg_reward, "best_reward": best_reward, "episode": episode, "stop_reward":stop_reward}
+            pickle.dump(metrics, open(metrics_file, "wb"))
+            ppo.save(model_file)
+            print("Saved best weights!", best_reward, model_file, metrics_file)
+            break
 
         if wandb_log:
             wandb.log(

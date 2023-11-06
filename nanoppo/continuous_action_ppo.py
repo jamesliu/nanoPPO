@@ -16,6 +16,7 @@ class PPOAgent:
         state_dim,
         action_dim,
         n_latent_var,
+        policy_class,
         policy_lr,
         value_lr,
         betas,
@@ -48,14 +49,23 @@ class PPOAgent:
 
         action_low_tensor = torch.tensor(action_low, dtype=torch.float32).to(device)
         action_high_tensor = torch.tensor(action_high, dtype=torch.float32).to(device)
-
-        self.policy = ActorCritic(
-            state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor
-        ).float().to(device)
-        self.policy_old = ActorCritic(
-            state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor
-        ).float().to(device)
-        self.policy_old.load_state_dict(self.policy.state_dict())
+        
+        if policy_class:
+            self.policy = policy_class(
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+            ).float().to(device)
+            self.policy_old = policy_class(
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+            ).float().to(device)
+            self.policy_old.load_state_dict(self.policy.state_dict())
+        else:
+            self.policy = ActorCritic(
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+            ).float().to(device)
+            self.policy_old = ActorCritic(
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+            ).float().to(device)
+            self.policy_old.load_state_dict(self.policy.state_dict())
 
         # Separate the parameters of the actor and critic networks
         actor_params = list(self.policy.action_mu.parameters()) + list(
@@ -87,7 +97,25 @@ class PPOAgent:
         self.lr_scheduler = lr_scheduler
 
         self.iterations = 0
+
+    def check_weights(self, model_part):
+        if self.debug:
+            for name, param in model_part.named_parameters():
+                if torch.isnan(param.data).any():
+                    print(f"NaN detected in weights: {name}")
+                    # Here you can call your debugging method or do other appropriate handling
+                    self.debug_this(model_part)
+                    breakpoint()  # or raise an exception, or log the issue, etc.
     
+    def check_gradients(self, model_part):
+        if self.debug:
+            for name, param in model_part.named_parameters():
+                if param.grad is not None and torch.isnan(param.grad).any():
+                    print(f"NaN detected in gradients: {name}")
+                    # Here you can call your debugging method or do other appropriate handling
+                    self.debug_this(model_part)
+                    breakpoint()  # or raise an exception, or log the issue, etc.
+        
     # Define the debug function
     def debug_this(self, model, state = None):
         print("Debugging Information:")
@@ -109,6 +137,9 @@ class PPOAgent:
                     break
 
     def update(self, states, actions, returns, next_states, dones):
+        # Before backpropagation: Check for NaN
+        self.check_weights(self.policy.action_mu)
+
         for _ in range(self.K_epochs):
             if self.debug:
                 # Check the actions for invalid values
@@ -119,10 +150,23 @@ class PPOAgent:
             # Getting predicted values and log probs for given states and actions
             logprobs, state_values = self.policy.evaluate(states, actions)
 
+            # NEW: Check for NaNs in state_values returned from the policy
+            if self.debug:
+                if torch.isnan(state_values).any() or torch.isinf(state_values).any():
+                    print("Invalid values detected in 'state_values'")
+                    breakpoint()  # Insert your handling here
+
             # Calculate the advantages
             advantages = returns - state_values.detach()
             # Normalize the advantages (optional, but can help in training stability)
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-5)
+
+            # NEW: Check for NaNs after normalizing advantages
+            if self.debug:
+                if torch.isnan(advantages).any() or torch.isinf(advantages).any():
+                    print("Invalid values detected after normalizing 'advantages'")
+                    breakpoint()  # Insert your handling here
+
             # Compute ratio for PPO
             old_logprobs, _ = self.policy_old.evaluate(states, actions)
             
@@ -136,7 +180,10 @@ class PPOAgent:
                     print("Anomaly detected in 'old_logprobs'")
                     breakpoint()  # Insert your handling here
 
-            ratio = torch.exp(logprobs - old_logprobs.detach())
+            log_diff = logprobs - old_logprobs.detach()
+            clamp_value = 50
+            log_diff_clamped = torch.clamp(log_diff, -clamp_value, clamp_value)  # clamp_value could be a large number like 50 or 100
+            ratio = torch.exp(log_diff_clamped)
 
             if self.debug:
                 # Checking critical tensors for NaNs
@@ -144,8 +191,16 @@ class PPOAgent:
                     print("NaN detected in 'ratio'")
                     breakpoint()  # Insert your handling here
                 
+                if torch.isinf(ratio).any():
+                    print("Inf detected in 'ratio'")
+                    breakpoint()  # Insert your handling here
+                
                 if torch.isnan(advantages).any():
                     print("NaN detected in 'advantages'")
+                    breakpoint()  # Insert your handling here
+
+                if torch.isinf(advantages).any():
+                    print("Inf detected in 'advantages'")
                     breakpoint()  # Insert your handling here
 
             # Surrogate loss
@@ -164,6 +219,9 @@ class PPOAgent:
             if self.debug:
                 if torch.isnan(policy_loss) or torch.isinf(policy_loss):
                     print("Anomaly in policy loss detected.")
+                    # Additional checks can be placed here
+                    self.check_gradients(self.policy)
+                
                     breakpoint()  # Insert your handling here
                 
                 if torch.isnan(entropy_loss) or torch.isinf(entropy_loss):
@@ -182,7 +240,10 @@ class PPOAgent:
             # Optimize policy network
             self.optimizer.zero_grad()
             loss.backward()
-            
+
+            # After backpropagation/Before optimizer step: Check if gradients are NaN
+            self.check_gradients(self.policy.action_mu)
+
             self.policy.check_for_nan_gradients()
 
             # Clip gradients to prevent exploding gradients
@@ -191,6 +252,9 @@ class PPOAgent:
             torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.7)
         
             self.optimizer.step()
+            # After optimizer step: Check for NaN
+            self.check_weights(self.policy.action_mu)
+
             if self.wandb_log:
                 wandb.log(
                     {
@@ -200,7 +264,8 @@ class PPOAgent:
                         "total_loss": loss.item(),
                     }
                 )
-            if self.debug: 
+            
+            if self.debug:
                 # Check for NaNs in the model's parameters
                 for name, param in self.policy.named_parameters():
                     if torch.isnan(param.data).any():
