@@ -20,8 +20,7 @@ nanoPPO
    :maxdepth: 2
    :caption: Contents:
 
-   installation
-   readme
+   README.md
    reward_rescaling
    contributing
    changelog

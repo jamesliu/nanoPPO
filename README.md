@@ -107,7 +107,7 @@ ppo = PPO(env.observation_space.shape[0], env.action_space.n)
 # Training code here...
 ```
 ## Examples
-See the [examples](./examples) directory for more comprehensive usage examples.
+See the [examples](https://github.com/jamesliu/nanoPPO/tree/main/examples) directory for more comprehensive usage examples.
 
 examples/train_mountaincar.sh
 
@@ -134,11 +134,11 @@ Full documentation is available [here](https://nanoppo.readthedocs.io/en/latest/
 
 ## Contributing
 
-We welcome contributions to nanoPPO! If you're interested in contributing, please see our [contribution guidelines](./CONTRIBUTING.md) and [code of conduct](./CODE_OF_CONDUCT.md).
+We welcome contributions to nanoPPO! If you're interested in contributing, please see our [contribution guidelines](https://github.com/jamesliu/nanoPPO/blob/main/CONTRIBUTING.md).
 
 ## License
 
-nanoPPO is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for more details.
+nanoPPO is licensed under the Apache License 2.0. See the [LICENSE](https://github.com/jamesliu/nanoPPO/blob/main/LICENSE) file for more details.
 
 ## Support
 
