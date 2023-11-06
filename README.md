@@ -28,7 +28,7 @@ pip install .
 
 Here are examples of how to use nanoPPO to train an agent.
 
-On the MountaionCarContinuous-v0 environment:
+### On the MountaionCarContinuous-v0 environment:
 
 ```python
 from nanoppo.train_ppo_agent import train_agent
@@ -54,7 +54,48 @@ episode = metrics["episode"]
 print("best_reward", best_reward, "episode", episode)
 ```
 
-On the CartPole-v1 environment:
+#### Use Custom LR Scheduler and Custom Policy
+
+* Set Cosine Learning Rate Scheduler
+* Set Policy network to CausalAttention instead of Linear
+
+```python
+from nanoppo.train_ppo_agent import train_agent
+from nanoppo.cosine_lr_scheduler import CosineLRScheduler
+from nanoppo.policy.actor_critic_causal_attention import ActorCriticCausalAttention
+
+lr_scheduler=CosineLRScheduler(
+    learning_rate=config['cosine_lr'], 
+    warmup_iters=config['cosine_warmup_iters'], 
+    lr_decay_iters=config['cosine_decay_steps'], 
+    min_lr=config['cosine_min_lr'])
+
+policy_class = ActorCriticCausalAttention
+
+ppo, model_file, metrics_file = train_agent(
+    env_name=env_name,
+    env_config = env_config, 
+    max_episodes=config['max_episode'],
+    stop_reward=config['stop_reward'],
+    policy_class = policy_class,
+    lr_scheduler=lr_scheduler,
+    policy_lr=config['policy_lr'],
+    value_lr=config['value_lr'],
+    vl_coef=config['vl_coef'],
+    betas = config['betas'],
+    n_latent_var=config['n_latent_var'],
+    gamma=config['gamma'],
+    K_epochs=config['K_epochs'],
+    eps_clip=config['eps_clip'],
+    el_coef=config['el_coef'],
+    checkpoint_dir=checkpoint_dir,
+    checkpoint_interval=10,
+    log_interval=10,
+    wandb_log=wandb_log,
+    debug=True)
+```
+
+### On the CartPole-v1 environment:
 
 ```python
 from nanoppo.discrete_action_ppo import PPO
