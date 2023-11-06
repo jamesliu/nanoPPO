@@ -57,7 +57,7 @@ print("best_reward", best_reward, "episode", episode)
 #### Use Custom LR Scheduler and Custom Policy
 
 * Set Cosine Learning Rate Scheduler
-* Set Policy network to CausalAttention instead of Linear
+* Set CausalAttention Policy instead of Linear Policy
 
 ```python
 from nanoppo.train_ppo_agent import train_agent
