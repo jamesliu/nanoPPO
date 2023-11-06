@@ -114,7 +114,7 @@ examples/train_mountaincar.sh
 ```
 python nanoppo/train_ppo_agent.py --env_name=MountainCarContinuous-v0 --policy_lr=0.0005 --value_lr=0.0005 --max_episodes=50 --vl_coef=0.5 --wandb_log
 ```
-![mountaincar](assets/MountainCarContinuous-v0.png)
+![mountaincar](https://github.com/jamesliu/nanoPPO/assets/MountainCarContinuous-v0.png)
 
 examples/train_pointmass1d.sh
 
