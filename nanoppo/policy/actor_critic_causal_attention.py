@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import MultiheadAttention
+from nanoppo.sinusoidal_positional_encoding import SinusoidalPositionalEncoding
 
 class ActorCriticCausalAttention(nn.Module):
     def __init__(self, state_dim, action_dim, nhead, action_low_tensor, action_high_tensor, rescale=False, debug=False):
@@ -13,6 +14,7 @@ class ActorCriticCausalAttention(nn.Module):
         
         # Actor (Mu)
         self.action_mu = nn.Sequential(
+            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
@@ -22,6 +24,7 @@ class ActorCriticCausalAttention(nn.Module):
         
         # Actor (Log Std)
         self.action_log_std = nn.Sequential(
+            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
@@ -31,6 +34,7 @@ class ActorCriticCausalAttention(nn.Module):
         
         # Critic
         self.value_layer = nn.Sequential(
+            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
