@@ -61,7 +61,6 @@ def compute_returns_and_advantages_without_gae(
 
     return returns, advs
 
-
 def get_grad_norm(parameters):
     """
     Compute the 2-norm of gradients for the provided parameters.
@@ -72,9 +71,10 @@ def get_grad_norm(parameters):
     Returns:
     - float: Gradient norm.
     """
-    grad_norm = 0.0
+    total_norm = 0.0
     for param in parameters:
         if param.grad is not None:
-            grad_norm += (param.grad.data**2).sum()
-    grad_norm = grad_norm.sqrt().item()
-    return grad_norm
+            param_norm = param.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
