@@ -4,17 +4,17 @@ from torch.nn import MultiheadAttention
 from nanoppo.sinusoidal_positional_encoding import SinusoidalPositionalEncoding
 
 class ActorCriticCausalAttention(nn.Module):
-    def __init__(self, state_dim, action_dim, nhead, action_low_tensor, action_high_tensor, rescale=False, debug=False):
+    def __init__(self, state_dim, action_dim, nhead, action_low_tensor, action_high_tensor, device, rescale=False, debug=False):
         super(ActorCriticCausalAttention, self).__init__()
         self.action_low_tensor = action_low_tensor
         self.action_high_tensor = action_high_tensor
         self.rescale = rescale
         self.debug = debug
         self.epsilon = 1e-5
+        self.positional_encoding = SinusoidalPositionalEncoding(d_model = state_dim, device=device)
         
         # Actor (Mu)
         self.action_mu = nn.Sequential(
-            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
@@ -24,7 +24,6 @@ class ActorCriticCausalAttention(nn.Module):
         
         # Actor (Log Std)
         self.action_log_std = nn.Sequential(
-            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
@@ -34,7 +33,6 @@ class ActorCriticCausalAttention(nn.Module):
         
         # Critic
         self.value_layer = nn.Sequential(
-            SinusoidalPositionalEncoding(state_dim),
             MultiheadAttention(state_dim, nhead, batch_first=True),
             nn.Linear(state_dim, nhead),
             #nn.Tanh(),
@@ -58,6 +56,7 @@ class ActorCriticCausalAttention(nn.Module):
         length = state.size(1)
         mask = torch.triu(torch.ones(length, length), diagonal=1).bool().to(state.device)
         
+        state = self.positional_encoding(state)
         # Actor (Mu)
         attn_output_mu, _ = self.action_mu[0](state, state, state, attn_mask=mask)
         mu = self.action_mu[1:](attn_output_mu)
@@ -111,6 +110,7 @@ class ActorCriticCausalAttention(nn.Module):
         length = state.size(1)
         mask = torch.triu(torch.ones(length, length), diagonal=1).bool().to(state.device)
 
+        state = self.positional_encoding(state)
         # Actor (Mu)
         attn_output_mu, _ = self.action_mu[0](state, state, state, attn_mask=mask)
         mu = self.action_mu[1:](attn_output_mu)
@@ -194,6 +194,7 @@ class ActorCriticCausalAttention(nn.Module):
         for name, param in model.named_parameters():
             print(name, param.data)
         
+        state = self.positional_encoding(state)
         # Pass the input through each layer individually and print the outputs
         x = state
         for i, layer in enumerate(model):
@@ -223,6 +224,7 @@ class ActorCriticCausalAttention(nn.Module):
         length = state.size(1)
         mask = torch.triu(torch.ones(length, length), diagonal=1).bool().to(state.device)
         
+        state = self.positional_encoding(state)
         # Value Layer
         attn_output_value, _ = self.value_layer[0](state, state, state, attn_mask=mask)
         return self.value_layer[1:](attn_output_value)[:, -1, :]
@@ -237,6 +239,7 @@ class ActorCriticCausalAttention(nn.Module):
         length = state.size(1)
         mask = torch.triu(torch.ones(length, length), diagonal=1).bool().to(state.device)
 
+        state = self.positional_encoding(state)
         # Actor (Mu)
         attn_output_mu, _ = self.action_mu[0](state, state, state, attn_mask=mask)
         mu = self.action_mu[1:](attn_output_mu)

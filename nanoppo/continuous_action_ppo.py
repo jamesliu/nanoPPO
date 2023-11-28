@@ -52,10 +52,10 @@ class PPOAgent:
         
         if policy_class:
             self.policy = policy_class(
-                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, device=device, debug=debug
             ).float().to(device)
             self.policy_old = policy_class(
-                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, debug=debug
+                state_dim, action_dim, n_latent_var, action_low_tensor, action_high_tensor, device=device, debug=debug
             ).float().to(device)
             self.policy_old.load_state_dict(self.policy.state_dict())
         else:
